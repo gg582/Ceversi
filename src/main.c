@@ -1,12 +1,13 @@
 #define _GNU_SOURCE
-#include <cwist/app.h>
-#include <cwist/http.h>
-#include <cwist/sql.h>
+#include <cwist/sys/app/app.h>
+#include <cwist/net/http/http.h>
+#include <cwist/core/db/sql.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 #include <pthread.h>
+#include <unistd.h>
 
 #include "common.h"
 #include "db.h"
@@ -59,15 +60,14 @@ int main(int argc, char **argv) {
     pthread_create(&tid, NULL, cleanup_thread, db);
     pthread_detach(tid);
 
-    // API Routes
+    // Explicit API Routes
     cwist_app_get(app, "/", root_handler);
-    
-    // Static files (CSS, JS, Assets) from public directory
-    cwist_app_static(app, "/", "./public"); 
-
     cwist_app_post(app, "/join", join_handler);
     cwist_app_get(app, "/state", state_handler);
     cwist_app_post(app, "/move", move_handler);
+    
+    // Static files fallback
+    cwist_app_static(app, "/static", "./public"); 
 
     printf("Starting %s Othello Server on port %d...\n", use_https ? "HTTPS" : "HTTP", port);
     

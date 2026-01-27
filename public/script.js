@@ -430,6 +430,28 @@ async function sendMove(r, c) {
     } catch (e) { console.error(e); }
 }
 
+// --- Theme Management ---
+const themeToggle = document.getElementById('theme-toggle');
+const html = document.documentElement;
+
+function setTheme(theme) {
+    html.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+}
+
+// Initial Theme Load
+const savedTheme = localStorage.getItem('theme');
+if (savedTheme) {
+    setTheme(savedTheme);
+} else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+    setTheme('light');
+}
+
+themeToggle.addEventListener('click', () => {
+    const currentTheme = html.getAttribute('data-theme');
+    setTheme(currentTheme === 'light' ? 'dark' : 'light');
+});
+
 // Initial state injection
 if (window.initialState) {
     const s = window.initialState;
