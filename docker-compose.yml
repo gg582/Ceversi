@@ -1,6 +1,7 @@
 version: '3.8'
 services:
   ceversi:
+    network_mode: "host"
     build: .
     ports:
       - "31744:31744"

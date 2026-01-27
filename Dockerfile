@@ -3,6 +3,7 @@ FROM alpine:latest AS c_builder
 
 # Install build dependencies
 # Using edge community repository to ensure latest versions of libraries
+RUN apk update
 RUN apk add --no-cache \
     gcc musl-dev make sqlite-dev openssl-dev cjson-dev uriparser-dev libc-utils linux-headers \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community
