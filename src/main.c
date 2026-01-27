@@ -59,10 +59,12 @@ int main(int argc, char **argv) {
     pthread_create(&tid, NULL, cleanup_thread, db);
     pthread_detach(tid);
 
-    // Static assets
-    cwist_app_static(app, "/", "./"); 
-
     // API Routes
+    cwist_app_get(app, "/", root_handler);
+    
+    // Static files (CSS, JS, Assets) from public directory
+    cwist_app_static(app, "/", "./public"); 
+
     cwist_app_post(app, "/join", join_handler);
     cwist_app_get(app, "/state", state_handler);
     cwist_app_post(app, "/move", move_handler);

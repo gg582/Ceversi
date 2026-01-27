@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ceversi | Modern Reversi</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+</head>
+<body>
+    <div id="app">
+        <nav class="navbar">
+            <div class="nav-brand">
+                <div class="logo-icon">C</div>
+                <h1>Ceversi</h1>
+            </div>
+            <div class="nav-links">
+                <a href="#" class="active">Play</a>
+                <a href="https://github.com/cwist/ceversi" target="_blank">GitHub</a>
+            </div>
+        </nav>
+
+        <main class="main-content">
+            <!-- Lobby View -->
+            <div id="lobby" class="view-container {% if room_id %}hidden{% endif %}">
+                <div class="hero-section">
+                    <h2>Play Othello & Reversi</h2>
+                    <p>Experience the classic strategy game with a modern touch.</p>
+                </div>
+
+                <div class="game-cards">
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="icon-wrapper single-player">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                            </div>
+                            <h3>Single Player</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label>Difficulty</label>
+                                <div class="select-wrapper">
+                                    <select id="difficulty-select">
+                                        <option value="easy">Easy</option>
+                                        <option value="medium" selected>Medium</option>
+                                        <option value="hard">Hard</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="button-group">
+                                <button class="btn btn-primary" onclick="startLocalGame('othello')">Play Othello</button>
+                                <button class="btn btn-outline" onclick="startLocalGame('reversi')">Play Reversi</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="icon-wrapper multiplayer">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                            </div>
+                            <h3>Multiplayer</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label>Room ID</label>
+                                <input type="number" id="room-input" value="1" min="1" placeholder="Enter Room ID">
+                            </div>
+                            <div class="button-group">
+                                <button class="btn btn-primary" onclick="startMultiplayerGame('othello')">Join Othello</button>
+                                <button class="btn btn-outline" onclick="startMultiplayerGame('reversi')">Join Reversi</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div id="connection-status" class="status-msg"></div>
+            </div>
+
+            <!-- Game View -->
+            <div id="game-area" class="view-container {% if not room_id %}hidden{% endif %}">
+                <div class="game-layout">
+                    <div class="game-sidebar">
+                        <div class="score-card" id="score-card-black">
+                            <div class="player-avatar black"></div>
+                            <div class="player-info">
+                                <span class="player-name">Black</span>
+                                <span class="player-status" id="status-black">Turn</span>
+                            </div>
+                            <div class="score-value" id="score-black">{{ score_black }}</div>
+                        </div>
+                        
+                        <div class="vs-divider">
+                            <span>VS</span>
+                        </div>
+
+                        <div class="score-card" id="score-card-white">
+                            <div class="player-avatar white"></div>
+                            <div class="player-info">
+                                <span class="player-name">White</span>
+                                <span class="player-status" id="status-white">Waiting</span>
+                            </div>
+                            <div class="score-value" id="score-white">{{ score_white }}</div>
+                        </div>
+
+                        <div class="game-controls">
+                            <div class="turn-badge" id="turn-indicator">{{ turn_text }}</div>
+                            <button class="btn btn-secondary full-width" onclick="exitGame()">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                                Leave Game
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="board-container">
+                        <div id="game-board">
+                            {{ board_html }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+    <script>
+        // Server-Side State Injection
+        {% if room_id %}
+        window.initialState = {
+            roomId: {{ room_id }},
+            mode: "{{ mode }}",
+            turn: {{ turn_val }},
+            status: "{{ status }}",
+            board: {{ board_json }}
+        };
+        {% endif %}
+    </script>
+</body>
+</html>
