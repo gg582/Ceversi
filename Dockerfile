@@ -13,6 +13,10 @@ WORKDIR /app
 # Copy the entire project context
 COPY . .
 
+ARG CWIST_REPO="https://github.com/gg582/cwist.git"
+ARG CWIST_REF="main"
+RUN git clone --depth 1 --branch "${CWIST_REF}" "${CWIST_REPO}" /app/cwist
+
 # 1. Install Headers (Include) manually to system paths
 # This resolves compilation issues where Makefiles use relative paths (e.g., -I../include)
 # by making headers available globally in /usr/local/include.
