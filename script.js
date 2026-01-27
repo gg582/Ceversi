@@ -22,6 +22,169 @@ let pollInterval = null;
 let currentMode = 'othello'; 
 let currentDifficulty = 'medium';
 
+// --- Auth State ---
+let currentUser = JSON.parse(localStorage.getItem('user')) || null;
+let authMode = 'login'; // 'login' or 'register'
+
+function getNicknameColor(wins, losses) {
+    const total = wins + losses;
+    if (total === 0) return 'var(--text-primary)';
+    const winRate = wins / total;
+    // High win rate (1.0) -> Red (0, 100, 50) in HSL
+    // Low win rate (0.0) -> Purple (280, 100, 50) in HSL
+    const hue = 280 - (winRate * 280);
+    return `hsl(${hue}, 80%, 60%)`;
+}
+
+function updateAuthUI() {
+    const authControls = document.getElementById('auth-controls');
+    const userDisplay = document.getElementById('user-display');
+    const displayUsername = document.getElementById('display-username');
+
+    if (currentUser) {
+        authControls.classList.add('hidden');
+        userDisplay.classList.remove('hidden');
+        displayUsername.innerText = currentUser.username;
+        // Fetch user info to get latest stats for color
+        fetchUserInfo(currentUser.user_id);
+    } else {
+        authControls.classList.remove('hidden');
+        userDisplay.classList.add('hidden');
+    }
+}
+
+async function fetchUserInfo(userId) {
+    try {
+        const res = await fetch(`/user_info?user_id=${userId}`);
+        if (res.ok) {
+            const data = await res.json();
+            const color = getNicknameColor(data.wins, data.losses);
+            document.getElementById('display-username').style.color = color;
+        }
+    } catch (e) { console.error(e); }
+}
+
+function showAuthModal() {
+    document.getElementById('auth-modal').classList.remove('hidden');
+    authMode = 'login';
+    updateAuthModalUI();
+}
+
+function hideAuthModal() {
+    document.getElementById('auth-modal').classList.add('hidden');
+}
+
+function toggleAuthMode() {
+    authMode = (authMode === 'login') ? 'register' : 'login';
+    updateAuthModalUI();
+}
+
+function updateAuthModalUI() {
+    const title = document.getElementById('auth-title');
+    const submitBtn = document.getElementById('auth-submit');
+    const switchLink = document.querySelector('.auth-switch');
+
+    if (authMode === 'login') {
+        title.innerText = 'Login';
+        submitBtn.innerText = 'Login';
+        switchLink.innerHTML = `Don't have an account? <a href="#" onclick="toggleAuthMode()">Register</a>`;
+    } else {
+        title.innerText = 'Register';
+        submitBtn.innerText = 'Register';
+        switchLink.innerHTML = `Already have an account? <a href="#" onclick="toggleAuthMode()">Login</a>`;
+    }
+    document.getElementById('auth-error').classList.add('hidden');
+}
+
+async function handleAuthSubmit() {
+    const user = document.getElementById('auth-username').value;
+    const pass = document.getElementById('auth-password').value;
+    const errorEl = document.getElementById('auth-error');
+
+    if (!user || !pass) {
+        errorEl.innerText = "Please fill all fields";
+        errorEl.classList.remove('hidden');
+        return;
+    }
+
+    try {
+        const endpoint = authMode === 'login' ? '/login' : '/register';
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            body: JSON.stringify({ username: user, password: pass })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+            if (authMode === 'login') {
+                currentUser = data;
+                localStorage.setItem('user', JSON.stringify(data));
+                updateAuthUI();
+                hideAuthModal();
+            } else {
+                alert("Registration successful! Please login.");
+                authMode = 'login';
+                updateAuthModalUI();
+            }
+        } else {
+            errorEl.innerText = data.error || "An error occurred";
+            errorEl.classList.remove('hidden');
+        }
+    } catch (e) {
+        errorEl.innerText = "Connection failed";
+        errorEl.classList.remove('hidden');
+    }
+}
+
+function logout() {
+    currentUser = null;
+    localStorage.removeItem('user');
+    updateAuthUI();
+}
+
+// --- View Management ---
+function showView(viewId) {
+    document.querySelectorAll('.view-container').forEach(v => v.classList.add('hidden'));
+    document.getElementById(viewId).classList.remove('hidden');
+    
+    document.querySelectorAll('.nav-links a').forEach(a => a.classList.remove('active'));
+    if (viewId === 'lobby') document.querySelector('.nav-links a:first-child').classList.add('active');
+}
+
+async function showRankings() {
+    showView('rankings');
+    const body = document.getElementById('rankings-body');
+    body.innerHTML = '<tr><td colspan="5" style="text-align:center">Loading...</td></tr>';
+
+    try {
+        const res = await fetch('/rankings');
+        const data = await res.json();
+        body.innerHTML = '';
+        data.forEach((user, index) => {
+            const tr = document.createElement('tr');
+            const total = user.wins + user.losses;
+            const rate = total > 0 ? ((user.wins / total) * 100).toFixed(1) + '%' : '0%';
+            const color = getNicknameColor(user.wins, user.losses);
+            
+            tr.innerHTML = `
+                <td><span class="rank-val">#${index + 1}</span></td>
+                <td><span style="font-weight:700; color:${color}">${user.username}</span></td>
+                <td>${user.wins}</td>
+                <td>${user.losses}</td>
+                <td>${rate}</td>
+            `;
+            body.appendChild(tr);
+        });
+    } catch (e) {
+        body.innerHTML = '<tr><td colspan="5" style="text-align:center; color:red">Failed to load rankings</td></tr>';
+    }
+}
+
+// Update UI on load
+document.addEventListener('DOMContentLoaded', () => {
+    updateAuthUI();
+});
+
 const directions = [
     [-1, -1], [-1, 0], [-1, 1],
     [0, -1],           [0, 1],
@@ -352,6 +515,7 @@ function startLocalGame(mode) {
 
 async function startMultiplayerGame(mode) {
     const roomId = document.getElementById('room-input').value;
+    const userId = currentUser ? currentUser.user_id : 0;
     // status feedback
     const btn = event.target;
     const originalText = btn.innerText;
@@ -359,7 +523,7 @@ async function startMultiplayerGame(mode) {
     btn.disabled = true;
 
     try {
-        const res = await fetch(`/join?room=${roomId}&mode=${mode}`, { method: 'POST' });
+        const res = await fetch(`/join?room=${roomId}&mode=${mode}&user_id=${userId}`, { method: 'POST' });
         if (res.status === 403) throw new Error("Room is full");
         if (!res.ok) throw new Error("Connection failed");
         

@@ -18,8 +18,15 @@
                 <h1>Ceversi</h1>
             </div>
             <div class="nav-links">
-                <a href="#" class="active">Play</a>
-                <a href="https://github.com/cwist/ceversi" target="_blank">GitHub</a>
+                <a href="#" class="active" onclick="showView('lobby')">Play</a>
+                <a href="#" onclick="showRankings()">Rankings</a>
+                <div id="auth-controls">
+                    <button class="btn btn-outline btn-sm" onclick="showAuthModal()">Login / Register</button>
+                </div>
+                <div id="user-display" class="hidden">
+                    <span id="display-username" class="username-badge"></span>
+                    <button class="btn btn-outline btn-sm" onclick="logout()">Logout</button>
+                </div>
                 <button id="theme-toggle" class="theme-btn" aria-label="Toggle Theme">
                     <svg class="sun-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
                     <svg class="moon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
@@ -83,6 +90,33 @@
                 <div id="connection-status" class="status-msg"></div>
             </div>
 
+            <!-- Rankings View -->
+            <div id="rankings" class="view-container hidden">
+                <div class="hero-section">
+                    <h2>Global Rankings</h2>
+                    <p>The masters of strategy and skill.</p>
+                </div>
+                <div class="card rankings-card">
+                    <table class="rankings-table">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Player</th>
+                                <th>Wins</th>
+                                <th>Losses</th>
+                                <th>Win Rate</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rankings-body">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+                <div style="margin-top: 2rem; text-align: center;">
+                    <button class="btn btn-outline" onclick="showView('lobby')">Back to Lobby</button>
+                </div>
+            </div>
+
             <!-- Game View -->
             <div id="game-area" class="view-container {% if not room_id %}hidden{% endif %}">
                 <div class="game-layout">
@@ -126,6 +160,30 @@
                 </div>
             </div>
         </main>
+    </div>
+
+    <div id="auth-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="auth-title">Login</h3>
+                <button class="close-btn" onclick="hideAuthModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="auth-username" placeholder="Enter username">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="auth-password" placeholder="Enter password">
+                </div>
+                <div id="auth-error" class="error-text hidden"></div>
+                <button id="auth-submit" class="btn btn-primary full-width" onclick="handleAuthSubmit()">Login</button>
+                <p class="auth-switch">
+                    Don't have an account? <a href="#" onclick="toggleAuthMode()">Register</a>
+                </p>
+            </div>
+        </div>
     </div>
 
     <script src="/static/script.js"></script>

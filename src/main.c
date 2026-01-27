@@ -65,6 +65,10 @@ int main(int argc, char **argv) {
     cwist_app_post(app, "/join", join_handler);
     cwist_app_get(app, "/state", state_handler);
     cwist_app_post(app, "/move", move_handler);
+    cwist_app_post(app, "/login", login_handler);
+    cwist_app_post(app, "/register", register_handler);
+    cwist_app_get(app, "/rankings", rankings_handler);
+    cwist_app_get(app, "/user_info", user_info_handler);
     
     // Static files fallback
     cwist_app_static(app, "/static", "./public"); 

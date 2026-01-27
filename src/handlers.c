@@ -64,8 +64,10 @@ void join_handler(cwist_http_request *req, cwist_http_response *res) {
     int pid;
     char mode[16];
     const char *requested_mode = cwist_query_map_get(req->query_params, "mode");
+    const char *user_id_str = cwist_query_map_get(req->query_params, "user_id");
+    int user_id = user_id_str ? atoi(user_id_str) : 0;
 
-    if (db_join_game(req->db, room_id, requested_mode, &pid, mode) < 0) {
+    if (db_join_game(req->db, room_id, requested_mode, &pid, mode, user_id) < 0) {
          res->status_code = CWIST_HTTP_FORBIDDEN;
          cwist_sstring_assign(res->body, "{\"error\": \"Room full\"}");
          return;
@@ -137,6 +139,8 @@ void state_handler(cwist_http_request *req, cwist_http_response *res) {
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
 }
 
+/* Processes a player move. Validates the move, updates the board, 
+   checks for game over, and records results for authenticated users. */
 void move_handler(cwist_http_request *req, cwist_http_response *res) {
     int room_id = get_room_id(req);
     cJSON *json = cJSON_Parse(req->body->data);
@@ -160,6 +164,7 @@ void move_handler(cwist_http_request *req, cwist_http_response *res) {
         int is_reversi_setup = (strcmp(mode, "reversi") == 0 && pieces < 4);
         
         if (is_reversi_setup) {
+            // Reversi setup: must place in center 4 squares
             if (r < 3 || r > 4 || c < 3 || c > 4 || board[r][c] != 0) {
                 res->status_code = CWIST_HTTP_BAD_REQUEST;
                 cJSON_Delete(json);
@@ -171,7 +176,7 @@ void move_handler(cwist_http_request *req, cwist_http_response *res) {
             return;
         }
 
-        // Apply Move
+        // Apply Move and Flip Discs
         board[r][c] = p;
         int opponent = (p == BLACK) ? WHITE : BLACK;
         
@@ -193,14 +198,24 @@ void move_handler(cwist_http_request *req, cwist_http_response *res) {
             }
         }
         
-        // Determine next turn
+        // Determine next turn and check if game ended
         if (is_reversi_setup && count_pieces(board) < 4) {
             turn = opponent;
         } else {
             if (has_valid_moves(board, opponent)) {
                 turn = opponent;
             } else if (!has_valid_moves(board, p)) {
+                // Game Over
                 strcpy(status, "finished");
+                
+                int b_cnt = 0, w_cnt = 0;
+                for(int rr=0; rr<SIZE; rr++) for(int cc=0; cc<SIZE; cc++) {
+                    if(board[rr][cc] == BLACK) b_cnt++;
+                    else if(board[rr][cc] == WHITE) w_cnt++;
+                }
+                int winner = (b_cnt > w_cnt) ? 1 : (w_cnt > b_cnt ? 2 : 0);
+                // Record result for user rankings
+                db_record_result(req->db, room_id, winner);
             }
         }
 
@@ -210,6 +225,80 @@ void move_handler(cwist_http_request *req, cwist_http_response *res) {
          res->status_code = CWIST_HTTP_FORBIDDEN;
     }
     cJSON_Delete(json);
+}
+
+void login_handler(cwist_http_request *req, cwist_http_response *res) {
+    cJSON *json = cJSON_Parse(req->body->data);
+    if (!json) { res->status_code = 400; return; }
+    const char *user = cJSON_GetObjectItem(json, "username")->valuestring;
+    const char *pass = cJSON_GetObjectItem(json, "password")->valuestring;
+    
+    char hash[65];
+    hash_password(pass, hash);
+    int uid = db_login_user(req->db, user, hash);
+    
+    cJSON *reply = cJSON_CreateObject();
+    if (uid > 0) {
+        cJSON_AddNumberToObject(reply, "user_id", uid);
+        cJSON_AddStringToObject(reply, "username", user);
+    } else {
+        cJSON_AddStringToObject(reply, "error", "Invalid credentials");
+        res->status_code = 401;
+    }
+    char *str = cJSON_PrintUnformatted(reply);
+    cwist_sstring_assign(res->body, str);
+    free(str);
+    cJSON_Delete(reply);
+    cJSON_Delete(json);
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+}
+
+void register_handler(cwist_http_request *req, cwist_http_response *res) {
+    cJSON *json = cJSON_Parse(req->body->data);
+    if (!json) { res->status_code = 400; return; }
+    const char *user = cJSON_GetObjectItem(json, "username")->valuestring;
+    const char *pass = cJSON_GetObjectItem(json, "password")->valuestring;
+    
+    char hash[65];
+    hash_password(pass, hash);
+    
+    cJSON *reply = cJSON_CreateObject();
+    if (db_register_user(req->db, user, hash) == 0) {
+        cJSON_AddStringToObject(reply, "status", "ok");
+    } else {
+        cJSON_AddStringToObject(reply, "error", "Username already exists");
+        res->status_code = 409;
+    }
+    char *str = cJSON_PrintUnformatted(reply);
+    cwist_sstring_assign(res->body, str);
+    free(str);
+    cJSON_Delete(reply);
+    cJSON_Delete(json);
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+}
+
+void rankings_handler(cwist_http_request *req, cwist_http_response *res) {
+    cJSON *ranks = db_get_rankings(req->db);
+    char *str = cJSON_PrintUnformatted(ranks);
+    cwist_sstring_assign(res->body, str);
+    free(str);
+    cJSON_Delete(ranks);
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+}
+
+void user_info_handler(cwist_http_request *req, cwist_http_response *res) {
+    const char *uid_str = cwist_query_map_get(req->query_params, "user_id");
+    if (!uid_str) { res->status_code = 400; return; }
+    cJSON *info = db_get_user_info(req->db, atoi(uid_str));
+    if (info) {
+        char *str = cJSON_PrintUnformatted(info);
+        cwist_sstring_assign(res->body, str);
+        free(str);
+        cJSON_Delete(info);
+    } else {
+        res->status_code = 404;
+    }
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
 }
 
 void root_handler(cwist_http_request *req, cwist_http_response *res) {
