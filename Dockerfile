@@ -31,18 +31,6 @@ WORKDIR /app
 RUN make clean && make
 
 
-# --- Go Build Stage ---
-FROM golang:1.25-alpine AS go_builder
-WORKDIR /app
-
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY main.go ./
-# Build the Go relay with CGO disabled for static linking
-RUN CGO_ENABLED=0 go build -o ceversi_relay .
-
-
 # --- Final Run Stage ---
 FROM alpine:latest
 
@@ -56,11 +44,6 @@ WORKDIR /app
 # Copy the compiled C backend binary
 COPY --from=c_builder /app/server ./ceversi-backend
 
-# Copy the compiled Go relay binary
-COPY --from=go_builder /app/ceversi_relay ./ceversi-relay
-
-# [FIX] Copy the 'public' directory to preserve directory structure.
-# This ensures that the server can serve CSS and JS files located in /public.
 COPY public/ ./public/
 
 # Copy root-level templates and fallback assets
@@ -71,14 +54,4 @@ COPY othello.db .
 
 EXPOSE 31744
 
-# Default environment variable for the relay URL
-ENV RELAY_URL="wss://portal.gosuda.org/relay"
-
-# Start the relay server
-# We hardcode the server-url in CMD to ensure it connects correctly without shell expansion issues
-ENTRYPOINT ["./ceversi-relay"]
-CMD ["--name", "ceversi", \
-     "--port", "31744", \
-     "--backend-port", "31745", \
-     "--c-server", "./ceversi-backend", \
-     "--server-url", "wss://portal.gosuda.org/relay"]
+ENTRYPOINT ["./ceversi --no-certs"]
