@@ -215,10 +215,12 @@ function initGame(mode) {
     updateUI();
 }
 
-function exitGame() {
+function exitGame(skipNotify = false) {
     if (isMultiplayer) {
-        const roomId = document.getElementById('room-input').value;
-        fetch(`/leave?room=${roomId}`, { method: 'POST' }).catch(console.error);
+        if (!skipNotify) {
+            const roomId = document.getElementById('room-input').value;
+            fetch(`/leave?room=${roomId}`, { method: 'POST' }).catch(console.error);
+        }
         isMultiplayer = false;
         myPlayerId = 0;
     }
@@ -564,6 +566,12 @@ async function pollState(roomId) {
         if (data.status === "timed_out") {
             alert("Game timed out due to 10 minutes of inactivity.");
             exitGame();
+            return;
+        }
+
+        if (gameActive && data.status === "waiting") {
+            alert("Opponent has left the game. Room reset.");
+            exitGame(true);
             return;
         }
 
