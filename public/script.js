@@ -219,7 +219,8 @@ function exitGame(skipNotify = false) {
     if (isMultiplayer) {
         if (!skipNotify) {
             const roomId = document.getElementById('room-input').value;
-            fetch(`/leave?room=${roomId}`, { method: 'POST' }).catch(console.error);
+            const userId = currentUser ? currentUser.user_id : 0;
+            fetch(`/leave?room=${roomId}&player_id=${myPlayerId}&user_id=${userId}`, { method: 'POST' }).catch(console.error);
         }
         isMultiplayer = false;
         myPlayerId = 0;

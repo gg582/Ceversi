@@ -89,7 +89,11 @@ void join_handler(cwist_http_request *req, cwist_http_response *res) {
 
 void leave_handler(cwist_http_request *req, cwist_http_response *res) {
     int room_id = get_room_id(req);
-    db_reset_room(req->db, room_id);
+    const char *user_id_str = cwist_query_map_get(req->query_params, "user_id");
+    const char *player_id_str = cwist_query_map_get(req->query_params, "player_id");
+    int user_id = user_id_str ? atoi(user_id_str) : 0;
+    int player_id = player_id_str ? atoi(player_id_str) : 0;
+    db_leave_game(req->db, room_id, player_id, user_id);
     cwist_sstring_assign(res->body, "{\"status\": \"ok\"}");
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
 }
