@@ -11,5 +11,5 @@ services:
       - ./index.html:/app/index.html
       - ./style.css:/app/style.css
       - ./script.js:/app/script.js
-      - ./othello.db:/app/othello.db
+      - /app/ceversi/data/othello.db:/app/othello.db
     restart: always

@@ -245,15 +245,7 @@ void login_handler(cwist_http_request *req, cwist_http_response *res) {
     const char *username = user_item->valuestring;
     
     /* Validate nickname: Allow only alphanumeric characters to prevent XSS payloads */
-    for (int i = 0; username[i]; i++) {
-        if (!isalnum(username[i])) {
-            /* Return 400 Bad Request for invalid characters */
-            res->status_code = 400;
-            cwist_sstring_assign(res->body, "{\"error\": \"Only alphanumeric names allowed\"}");
-            cJSON_Delete(json);
-            return;
-        }
-    }
+
     
     if (!user_item || !pass_item || !user_item->valuestring || !pass_item->valuestring) {
         res->status_code = 400;
@@ -263,6 +255,16 @@ void login_handler(cwist_http_request *req, cwist_http_response *res) {
     
     const char *user = user_item->valuestring;
     const char *pass = pass_item->valuestring;
+
+    for (int i = 0; username[i]; i++) {
+        if (!isalnum(username[i])) {
+            /* Return 400 Bad Request for invalid characters */
+            res->status_code = 400;
+            cwist_sstring_assign(res->body, "{\"error\": \"Only alphanumeric names allowed\"}");
+            cJSON_Delete(json);
+            return;
+        }
+    }
     
     char hash[65];
     hash_password(pass, hash);
@@ -309,6 +311,16 @@ void register_handler(cwist_http_request *req, cwist_http_response *res) {
     
     const char *user = user_item->valuestring;
     const char *pass = pass_item->valuestring;
+
+    for (int i = 0; user[i]; i++) {
+        if (!isalnum(user[i])) {
+            /* Return 400 Bad Request for invalid characters */
+            res->status_code = 400;
+            cwist_sstring_assign(res->body, "{\"error\": \"Only alphanumeric names allowed\"}");
+            cJSON_Delete(json);
+            return;
+        }
+    }
     
     // Basic length validation
     if (strlen(user) < 3 || strlen(pass) < 4) {
