@@ -234,6 +234,19 @@ void login_handler(cwist_http_request *req, cwist_http_response *res) {
     
     cJSON *user_item = cJSON_GetObjectItem(json, "username");
     cJSON *pass_item = cJSON_GetObjectItem(json, "password");
+
+    const char *username = user_item->valuestring;
+    
+    /* Validate nickname: Allow only alphanumeric characters to prevent XSS payloads */
+    for (int i = 0; username[i]; i++) {
+        if (!isalnum(username[i])) {
+            /* Return 400 Bad Request for invalid characters */
+            res->status_code = 400;
+            cwist_sstring_assign(res->body, "{\"error\": \"Only alphanumeric names allowed\"}");
+            cJSON_Delete(json);
+            return;
+        }
+    }
     
     if (!user_item || !pass_item || !user_item->valuestring || !pass_item->valuestring) {
         res->status_code = 400;
@@ -272,19 +285,6 @@ void register_handler(cwist_http_request *req, cwist_http_response *res) {
     
     cJSON *user_item = cJSON_GetObjectItem(json, "username");
     cJSON *pass_item = cJSON_GetObjectItem(json, "password");
-
-    const char *username = user_item->valuestring;
-    
-    /* allow only alphanumeric to block XSS at the source */
-    for (int i = 0; username[i]; i++) {
-        if (!isalnum(username[i])) {
-            /* Return 400 Bad Request if username contains non-alphanumeric characters */
-            res->status_code = 400;
-            cwist_sstring_assign(res->body, "{\"error\": \"Only alphanumeric names allowed\"}");
-            cJSON_Delete(json);
-            return;
-        }
-    }
     
     if (!user_item || !pass_item || !user_item->valuestring || !pass_item->valuestring ||
         strlen(user_item->valuestring) == 0 || strlen(pass_item->valuestring) == 0) {
@@ -452,5 +452,4 @@ void root_handler(cwist_http_request *req, cwist_http_response *res) {
     
     cJSON_Delete(context);
     cwist_http_header_add(&res->headers, "Content-Type", "text/html");
-    cwist_http_header_add(&res->headers, "Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline';");
 }
