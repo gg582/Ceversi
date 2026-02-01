@@ -22,6 +22,10 @@ void init_db(cwist_db *db) {
     cwist_db_exec(db, "ALTER TABLE games ADD COLUMN last_activity DATETIME DEFAULT CURRENT_TIMESTAMP;");
     cwist_db_exec(db, "ALTER TABLE games ADD COLUMN user1_id INTEGER DEFAULT 0;");
     cwist_db_exec(db, "ALTER TABLE games ADD COLUMN user2_id INTEGER DEFAULT 0;");
+    
+    // Trigger: When status becomes 'dropped', delete the row.
+    cwist_db_exec(db, "CREATE TRIGGER IF NOT EXISTS drop_game_on_leave AFTER UPDATE ON games WHEN NEW.status = 'dropped' BEGIN DELETE FROM games WHERE room_id = OLD.room_id; END;");
+    
     pthread_mutex_unlock(&db_mutex);
 }
 
@@ -190,7 +194,8 @@ int db_join_game(cwist_db *db, int room_id, const char *requested_mode, int *pla
 
 void db_reset_room(cwist_db *db, int room_id) {
     char sql[256];
-    snprintf(sql, sizeof(sql), "DELETE FROM games WHERE room_id = %d;", room_id);
+    // Trigger the drop via UPDATE status
+    snprintf(sql, sizeof(sql), "UPDATE games SET status = 'dropped' WHERE room_id = %d;", room_id);
     pthread_mutex_lock(&db_mutex);
     cwist_db_exec(db, sql);
     pthread_mutex_unlock(&db_mutex);
