@@ -87,6 +87,13 @@ void join_handler(cwist_http_request *req, cwist_http_response *res) {
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
 }
 
+void leave_handler(cwist_http_request *req, cwist_http_response *res) {
+    int room_id = get_room_id(req);
+    db_reset_room(req->db, room_id);
+    cwist_sstring_assign(res->body, "{\"status\": \"ok\"}");
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+}
+
 void state_handler(cwist_http_request *req, cwist_http_response *res) {
     int room_id = get_room_id(req);
     int board[SIZE][SIZE];

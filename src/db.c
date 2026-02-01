@@ -188,6 +188,14 @@ int db_join_game(cwist_db *db, int room_id, const char *requested_mode, int *pla
     return 0;
 }
 
+void db_reset_room(cwist_db *db, int room_id) {
+    char sql[256];
+    snprintf(sql, sizeof(sql), "DELETE FROM games WHERE room_id = %d;", room_id);
+    pthread_mutex_lock(&db_mutex);
+    cwist_db_exec(db, sql);
+    pthread_mutex_unlock(&db_mutex);
+}
+
 /* Records game results (wins, losses, ties) for authenticated users.
    Called when a game transitions to the 'finished' state. */
 void db_record_result(cwist_db *db, int room_id, int winner_pid) {

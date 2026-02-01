@@ -216,6 +216,12 @@ function initGame(mode) {
 }
 
 function exitGame() {
+    if (isMultiplayer) {
+        const roomId = document.getElementById('room-input').value;
+        fetch(`/leave?room=${roomId}`, { method: 'POST' }).catch(console.error);
+        isMultiplayer = false;
+        myPlayerId = 0;
+    }
     gameActive = false;
     if (pollInterval) clearInterval(pollInterval);
     gamePanel.classList.add('hidden');

@@ -63,6 +63,7 @@ int main(int argc, char **argv) {
     // Explicit API Routes
     cwist_app_get(app, "/", root_handler);
     cwist_app_post(app, "/join", join_handler);
+    cwist_app_post(app, "/leave", leave_handler);
     cwist_app_get(app, "/state", state_handler);
     cwist_app_post(app, "/move", move_handler);
     cwist_app_post(app, "/login", login_handler);
