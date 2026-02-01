@@ -84,14 +84,15 @@ void get_game_state(cwist_db *db, int room_id, int board[SIZE][SIZE], int *turn,
         *turn = BLACK;
         strcpy(status, "waiting");
         *players = 0;
-        
-        char board_str[1024];
-        serialize_board(board, board_str);
-        char insert[2048];
-        snprintf(insert, sizeof(insert), 
-            "INSERT INTO games (room_id, board, turn, status, players, mode, user1_id, user2_id, last_activity) VALUES (%d, '%s', %d, '%s', %d, '%s', 0, 0, CURRENT_TIMESTAMP);",
-            room_id, board_str, *turn, status, *players, mode);
-        cwist_db_exec(db, insert);
+        if (requested_mode) {
+            char board_str[1024];
+            serialize_board(board, board_str);
+            char insert[2048];
+            snprintf(insert, sizeof(insert), 
+                "INSERT INTO games (room_id, board, turn, status, players, mode, user1_id, user2_id, last_activity) VALUES (%d, '%s', %d, '%s', %d, '%s', 0, 0, CURRENT_TIMESTAMP);",
+                room_id, board_str, *turn, status, *players, mode);
+            cwist_db_exec(db, insert);
+        }
     } else {
         cJSON *row = cJSON_GetArrayItem(res, 0);
         cJSON *b = cJSON_GetObjectItem(row, "board");
@@ -139,7 +140,7 @@ void update_game_state(cwist_db *db, int room_id, int board[SIZE][SIZE], int tur
 int db_join_game(cwist_db *db, int room_id, const char *requested_mode, int *player_id, char *mode, int user_id) {
     pthread_mutex_lock(&db_mutex);
     char sql[256];
-    snprintf(sql, sizeof(sql), "SELECT board, turn, status, players, mode FROM games WHERE room_id = %d;", room_id);
+    snprintf(sql, sizeof(sql), "SELECT board, turn, status, players, mode, user1_id, user2_id FROM games WHERE room_id = %d;", room_id);
     cJSON *res = NULL;
     cwist_db_query(db, sql, &res);
     
@@ -171,25 +172,158 @@ int db_join_game(cwist_db *db, int room_id, const char *requested_mode, int *pla
             if (p->valuestring) current_players = atoi(p->valuestring);
             else if (cJSON_IsNumber(p)) current_players = p->valueint;
         }
+        int user1_id = 0;
+        int user2_id = 0;
+        cJSON *u1 = cJSON_GetObjectItem(row, "user1_id");
+        cJSON *u2 = cJSON_GetObjectItem(row, "user2_id");
+        if (u1) {
+            if (u1->valuestring) user1_id = atoi(u1->valuestring);
+            else if (cJSON_IsNumber(u1)) user1_id = u1->valueint;
+        }
+        if (u2) {
+            if (u2->valuestring) user2_id = atoi(u2->valuestring);
+            else if (cJSON_IsNumber(u2)) user2_id = u2->valueint;
+        }
+        if (user_id > 0 && user_id == user1_id) {
+            *player_id = 1;
+            cJSON *m = cJSON_GetObjectItem(row, "mode");
+            if(m && m->valuestring) strcpy(mode, m->valuestring);
+            else strcpy(mode, "othello");
+            char touch[128];
+            snprintf(touch, sizeof(touch), "UPDATE games SET last_activity=CURRENT_TIMESTAMP WHERE room_id=%d;", room_id);
+            cwist_db_exec(db, touch);
+            cJSON_Delete(res);
+            pthread_mutex_unlock(&db_mutex);
+            return 0;
+        }
+        if (user_id > 0 && user_id == user2_id) {
+            *player_id = 2;
+            cJSON *m = cJSON_GetObjectItem(row, "mode");
+            if(m && m->valuestring) strcpy(mode, m->valuestring);
+            else strcpy(mode, "othello");
+            char touch[128];
+            snprintf(touch, sizeof(touch), "UPDATE games SET last_activity=CURRENT_TIMESTAMP WHERE room_id=%d;", room_id);
+            cwist_db_exec(db, touch);
+            cJSON_Delete(res);
+            pthread_mutex_unlock(&db_mutex);
+            return 0;
+        }
         if (current_players >= 2) {
             cJSON_Delete(res);
             pthread_mutex_unlock(&db_mutex);
             return -1;
         }
+        int assigned_slot = 0;
+        if (user_id > 0) {
+            if (user1_id == 0) assigned_slot = 1;
+            else if (user2_id == 0) assigned_slot = 2;
+            else {
+                cJSON_Delete(res);
+                pthread_mutex_unlock(&db_mutex);
+                return -1;
+            }
+        } else {
+            assigned_slot = current_players + 1;
+        }
         current_players++;
-        *player_id = current_players;
+        *player_id = assigned_slot;
         cJSON *m = cJSON_GetObjectItem(row, "mode");
         if(m && m->valuestring) strcpy(mode, m->valuestring);
         else strcpy(mode, "othello");
-        const char *new_status = (current_players == 2) ? "active" : "waiting";
+        int new_players = current_players;
+        if (user_id > 0) {
+            int filled = (user1_id != 0) + (user2_id != 0);
+            if (assigned_slot == 1 && user1_id == 0) filled++;
+            if (assigned_slot == 2 && user2_id == 0) filled++;
+            new_players = filled;
+        }
+        const char *new_status = (new_players == 2) ? "active" : "waiting";
         char update[256];
-        snprintf(update, sizeof(update), "UPDATE games SET players=%d, status='%s', user%d_id=%d, last_activity=CURRENT_TIMESTAMP WHERE room_id=%d;", 
-                current_players, new_status, current_players, user_id, room_id);
+        if (user_id > 0) {
+            snprintf(update, sizeof(update), "UPDATE games SET players=%d, status='%s', user%d_id=%d, last_activity=CURRENT_TIMESTAMP WHERE room_id=%d;", 
+                    new_players, new_status, assigned_slot, user_id, room_id);
+        } else {
+            snprintf(update, sizeof(update), "UPDATE games SET players=%d, status='%s', last_activity=CURRENT_TIMESTAMP WHERE room_id=%d;", 
+                    new_players, new_status, room_id);
+        }
         cwist_db_exec(db, update);
     }
     cJSON_Delete(res);
     pthread_mutex_unlock(&db_mutex);
     return 0;
+}
+
+void db_leave_game(cwist_db *db, int room_id, int player_id, int user_id) {
+    pthread_mutex_lock(&db_mutex);
+    char sql[256];
+    snprintf(sql, sizeof(sql), "SELECT players, user1_id, user2_id FROM games WHERE room_id = %d;", room_id);
+    cJSON *res = NULL;
+    cwist_db_query(db, sql, &res);
+    if (cJSON_GetArraySize(res) == 0) {
+        cJSON_Delete(res);
+        pthread_mutex_unlock(&db_mutex);
+        return;
+    }
+
+    cJSON *row = cJSON_GetArrayItem(res, 0);
+    int current_players = 0;
+    cJSON *p = cJSON_GetObjectItem(row, "players");
+    if (p) {
+        if (p->valuestring) current_players = atoi(p->valuestring);
+        else if (cJSON_IsNumber(p)) current_players = p->valueint;
+    }
+
+    int user1_id = 0;
+    int user2_id = 0;
+    cJSON *u1 = cJSON_GetObjectItem(row, "user1_id");
+    cJSON *u2 = cJSON_GetObjectItem(row, "user2_id");
+    if (u1) {
+        if (u1->valuestring) user1_id = atoi(u1->valuestring);
+        else if (cJSON_IsNumber(u1)) user1_id = u1->valueint;
+    }
+    if (u2) {
+        if (u2->valuestring) user2_id = atoi(u2->valuestring);
+        else if (cJSON_IsNumber(u2)) user2_id = u2->valueint;
+    }
+
+    int leaving_slot = 0;
+    if (player_id == 1 || player_id == 2) {
+        leaving_slot = player_id;
+    } else if (user_id > 0 && user_id == user1_id) {
+        leaving_slot = 1;
+    } else if (user_id > 0 && user_id == user2_id) {
+        leaving_slot = 2;
+    }
+
+    if (leaving_slot == 0) {
+        cJSON_Delete(res);
+        pthread_mutex_unlock(&db_mutex);
+        return;
+    }
+
+    if (current_players >= 2 || current_players <= 1) {
+        char drop_sql[128];
+        snprintf(drop_sql, sizeof(drop_sql), "UPDATE games SET status = 'dropped' WHERE room_id = %d;", room_id);
+        cwist_db_exec(db, drop_sql);
+        cJSON_Delete(res);
+        pthread_mutex_unlock(&db_mutex);
+        return;
+    }
+
+    int new_players = current_players - 1;
+    if (new_players < 0) new_players = 0;
+    if (user_id > 0) {
+        if (leaving_slot == 1) user1_id = 0;
+        if (leaving_slot == 2) user2_id = 0;
+        new_players = (user1_id != 0) + (user2_id != 0);
+    }
+    const char *new_status = (new_players == 2) ? "active" : "waiting";
+    char update[256];
+    snprintf(update, sizeof(update), "UPDATE games SET players=%d, status='%s', user1_id=%d, user2_id=%d, last_activity=CURRENT_TIMESTAMP WHERE room_id=%d;",
+             new_players, new_status, user1_id, user2_id, room_id);
+    cwist_db_exec(db, update);
+    cJSON_Delete(res);
+    pthread_mutex_unlock(&db_mutex);
 }
 
 void db_reset_room(cwist_db *db, int room_id) {
