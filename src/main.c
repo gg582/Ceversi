@@ -2,6 +2,8 @@
 #include <cwist/sys/app/app.h>
 #include <cwist/net/http/http.h>
 #include <cwist/core/db/sql.h>
+#include <cwist/core/db/nuke_db.h>
+#include <cwist/core/macros.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,12 +49,29 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    // --- Smart Features Integration ---
+    // 1. Conservative Memory Limit for Static Files (Fail-safe)
+    cwist_app_set_max_memspace(app, CWIST_MIB(128)); 
+
+    // 2. Nuke DB (In-Memory Speed + Disk Persistence)
+    if (cwist_nuke_init("ceversi_nuke.db", 5000) == 0) {
+        printf("Nuke DB Initialized.\n");
+        // Hack: We want the app to use the Nuke DB handle.
+        // Since cwist_app_use_db opens a new file, we simulate it.
+        // We create the wrapper manually.
+        app->db = malloc(sizeof(cwist_db));
+        app->db->conn = cwist_nuke_get_db(); // Use the shared in-memory handle
+        app->db_path = strdup(":memory:");   // It is effectively memory
+    } else {
+        // Fallback
+        cwist_app_use_db(app, "othello.db");
+    }
+    // ---------------------------------
+
     if (use_https) {
         cwist_app_use_https(app, "server.crt", "server.key");
     }
 
-    cwist_app_use_db(app, "othello.db");
-    
     cwist_db *db = cwist_app_get_db(app);
     init_db(db); 
 
