@@ -5,13 +5,21 @@ FROM alpine:latest AS c_builder
 # Using edge community repository to ensure latest versions of libraries
 RUN apk update
 RUN apk add --no-cache \
-    gcc musl-dev make sqlite-dev openssl-dev cjson-dev uriparser-dev git libc-utils linux-headers \
+    tcc gcc musl-dev make sqlite-dev openssl-dev cjson-dev uriparser-dev git libc-utils linux-headers \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community
 
 WORKDIR /app
 
 # Copy the entire project context
 COPY . .
+
+ARG LIBTTAK_REPO="https://github.com/gg582/libttak.git"
+ARG LIBTTAK_REF="main"
+
+RUN git clone --depth 1 --branch "${LIBTTAK_REF}" "${LIBTTAK_REPO}" /app/libttak
+WORKDIR /app/libttak
+RUN make clean && make && \
+    make install
 
 ARG CWIST_REPO="https://github.com/gg582/cwist.git"
 ARG CWIST_REF="main"

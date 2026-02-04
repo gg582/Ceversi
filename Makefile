@@ -1,6 +1,6 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -I../include -O2
-LDFLAGS = -L../ -lcwist -lcjson -lssl -lcrypto -luriparser -lpthread -ldl
+CFLAGS = -Wall -Wextra -I../include -O3
+LDFLAGS = -L../ -lcwist -lttak -lcjson -lssl -lcrypto -luriparser -lpthread -ldl
 
 SRCS = src/main.c src/db.c src/handlers.c src/utils.c
 OBJS = $(SRCS:.c=.o)
