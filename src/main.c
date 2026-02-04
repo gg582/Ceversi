@@ -54,18 +54,7 @@ int main(int argc, char **argv) {
     cwist_app_set_max_memspace(app, CWIST_MIB(128)); 
 
     // 2. Nuke DB (In-Memory Speed + Disk Persistence)
-    if (cwist_nuke_init("ceversi_nuke.db", 5000) == 0) {
-        printf("Nuke DB Initialized.\n");
-        // Hack: We want the app to use the Nuke DB handle.
-        // Since cwist_app_use_db opens a new file, we simulate it.
-        // We create the wrapper manually.
-        app->db = malloc(sizeof(cwist_db));
-        app->db->conn = cwist_nuke_get_db(); // Use the shared in-memory handle
-        app->db_path = strdup(":memory:");   // It is effectively memory
-    } else {
-        // Fallback
-        cwist_app_use_db(app, "othello.db");
-    }
+    cwist_app_use_nuke_db(app, "othello.db", 5000);
     // ---------------------------------
 
     if (use_https) {
@@ -95,5 +84,7 @@ int main(int argc, char **argv) {
 
     printf("Starting %s Othello Server on port %d...\n", use_https ? "HTTPS" : "HTTP", port);
     
-    return cwist_app_listen(app, port);
+    int rc = cwist_app_listen(app, port);
+    cwist_app_destroy(app);
+    return rc;
 }
