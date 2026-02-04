@@ -15,6 +15,7 @@
 #include "db.h"
 #include "handlers.h"
 #include "utils.h"
+#include "memory.h"
 
 #define PORT 31744
 
@@ -23,6 +24,7 @@ void *cleanup_thread(void *arg) {
     while(1) {
         sleep(60);
         cleanup_stale_rooms(db);
+        cev_mem_collect();
     }
     return NULL;
 }
@@ -42,6 +44,7 @@ int main(int argc, char **argv) {
     }
 
     signal(SIGPIPE, SIG_IGN);
+    cev_mem_bootstrap();
 
     cwist_app *app = cwist_app_create();
     if (!app) {

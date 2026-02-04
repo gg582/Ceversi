@@ -2,6 +2,7 @@
 #include "common.h"
 #include "db.h"
 #include "utils.h"
+#include "memory.h"
 #include <cwist/sys/app/app.h>
 #include <cwist/net/http/http.h>
 #include <cwist/core/sstring/sstring.h>
@@ -146,7 +147,7 @@ void state_handler(cwist_http_request *req, cwist_http_response *res) {
     
     char *str = cJSON_PrintUnformatted(json);
     cwist_sstring_assign(res->body, str);
-    free(str);
+    cev_mem_free(str);
     cJSON_Delete(json);
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
 }
@@ -286,7 +287,7 @@ void login_handler(cwist_http_request *req, cwist_http_response *res) {
     }
     char *str = cJSON_PrintUnformatted(reply);
     cwist_sstring_assign(res->body, str);
-    free(str);
+    cev_mem_free(str);
     cJSON_Delete(reply);
     cJSON_Delete(json);
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
@@ -305,7 +306,7 @@ void register_handler(cwist_http_request *req, cwist_http_response *res) {
         cJSON_AddStringToObject(reply, "error", "Username and password are required");
         char *str = cJSON_PrintUnformatted(reply);
         cwist_sstring_assign(res->body, str);
-        free(str);
+        cev_mem_free(str);
         cJSON_Delete(reply);
         res->status_code = 400;
         cJSON_Delete(json);
@@ -332,7 +333,7 @@ void register_handler(cwist_http_request *req, cwist_http_response *res) {
         cJSON_AddStringToObject(reply, "error", "Username (min 3) or password (min 4) too short");
         char *str = cJSON_PrintUnformatted(reply);
         cwist_sstring_assign(res->body, str);
-        free(str);
+        cev_mem_free(str);
         cJSON_Delete(reply);
         res->status_code = 400;
         cJSON_Delete(json);
@@ -355,7 +356,7 @@ void register_handler(cwist_http_request *req, cwist_http_response *res) {
     }
     char *str = cJSON_PrintUnformatted(reply);
     cwist_sstring_assign(res->body, str);
-    free(str);
+    cev_mem_free(str);
     cJSON_Delete(reply);
     cJSON_Delete(json);
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
@@ -365,7 +366,7 @@ void rankings_handler(cwist_http_request *req, cwist_http_response *res) {
     cJSON *ranks = db_get_rankings(req->db);
     char *str = cJSON_PrintUnformatted(ranks);
     cwist_sstring_assign(res->body, str);
-    free(str);
+    cev_mem_free(str);
     cJSON_Delete(ranks);
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
 }
@@ -377,7 +378,7 @@ void user_info_handler(cwist_http_request *req, cwist_http_response *res) {
     if (info) {
         char *str = cJSON_PrintUnformatted(info);
         cwist_sstring_assign(res->body, str);
-        free(str);
+        cev_mem_free(str);
         cJSON_Delete(info);
     } else {
         res->status_code = 404;
@@ -435,7 +436,7 @@ void root_handler(cwist_http_request *req, cwist_http_response *res) {
         
         char *board_json_str = cJSON_PrintUnformatted(board_arr);
         cJSON_ReplaceItemInObject(context, "board_json", cJSON_CreateString(board_json_str));
-        free(board_json_str);
+        cev_mem_free(board_json_str);
         cJSON_Delete(board_arr); // board_arr was only used for string print
 
         cwist_sstring *cells_html = cwist_sstring_create();

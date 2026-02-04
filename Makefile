@@ -1,8 +1,8 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -I../include -O3
-LDFLAGS = -L../ -lcwist -lttak -lcjson -lssl -lcrypto -luriparser -lpthread -ldl
+CFLAGS = -Wall -Wextra -O3
+LDFLAGS = -lcwist -lttak -lcjson -lssl -lcrypto -luriparser -lpthread -ldl -lm
 
-SRCS = src/main.c src/db.c src/handlers.c src/utils.c
+SRCS = src/main.c src/db.c src/handlers.c src/utils.c src/memory.c
 OBJS = $(SRCS:.c=.o)
 TARGET = server
 
