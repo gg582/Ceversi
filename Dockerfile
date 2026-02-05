@@ -61,7 +61,6 @@ COPY public/ ./public/
 COPY index.html.tmpl .
 COPY style.css .
 COPY script.js .
-COPY othello.db .
 
 EXPOSE 31744
 
