@@ -9,7 +9,8 @@
 
 #define CEV_MEM_DEFAULT_TTL TT_MINUTE(10)
 #define CEV_MEM_JSON_TTL TT_SECOND(30)
-#define CEV_MEM_FLAGS (TTAK_MEM_STRICT_CHECK | TTAK_MEM_CACHE_ALIGNED)
+/* Strict mode in libttak currently corrupts bookkeeping headers, so stick to alignment only. */
+#define CEV_MEM_FLAGS TTAK_MEM_CACHE_ALIGNED
 
 static uint64_t cev_mem_now(void) {
     return ttak_get_tick_count_ns();
