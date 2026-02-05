@@ -52,12 +52,23 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    const char *db_path = "othello.db";
+
     // --- Smart Features Integration ---
     // 1. Conservative Memory Limit for Static Files (Fail-safe)
     cwist_app_set_max_memspace(app, CWIST_MIB(128)); 
 
     // 2. Nuke DB (In-Memory Speed + Disk Persistence)
-    cwist_app_use_nuke_db(app, "othello.db", 5000);
+    cwist_error_t db_status = cwist_app_use_nuke_db(app, db_path, 5000);
+    if (db_status.errtype != CWIST_ERR_INT16 || db_status.error.err_i16 != 0) {
+        fprintf(stderr, "[ceversi] Nuke DB not available, falling back to standard SQLite for '%s'.\n", db_path);
+        db_status = cwist_app_use_db(app, db_path);
+        if (db_status.errtype != CWIST_ERR_INT16 || db_status.error.err_i16 != 0) {
+            fprintf(stderr, "[ceversi] Unable to open database '%s'.\n", db_path);
+            cwist_app_destroy(app);
+            return 1;
+        }
+    }
     // ---------------------------------
 
     if (use_https) {
@@ -65,6 +76,11 @@ int main(int argc, char **argv) {
     }
 
     cwist_db *db = cwist_app_get_db(app);
+    if (!db) {
+        fprintf(stderr, "[ceversi] Database handle unavailable, aborting.\n");
+        cwist_app_destroy(app);
+        return 1;
+    }
     init_db(db); 
 
     pthread_t tid;
