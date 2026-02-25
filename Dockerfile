@@ -33,8 +33,11 @@ RUN git clone --depth 1 --branch "${CWIST_REF}" "${CWIST_REPO}" /app/cwist
 # Build libcwist.a and copy it to /usr/lib so the linker finds it automatically
 # without needing specific -L flags.
 WORKDIR /app/cwist
-RUN make clean && make && \
-    make install
+RUN printf '#!/bin/sh\n/usr/bin/gcc -std=gnu17 "$@"\n' > /usr/local/bin/gcc && \
+    chmod +x /usr/local/bin/gcc && \
+    cp -r /app/libttak/. lib/libttak/ && \
+    make && make install && \
+    rm /usr/local/bin/gcc
 
 # 3. Build Main Server
 # Navigate back to root to build the backend server binary
