@@ -24,6 +24,7 @@ RUN make clean && CC=tcc LDFLAGS="${LDFLAGS} -Wl,--no-eh-frame-hdr -fuse-ld=lld"
 ARG CWIST_REPO="https://github.com/gg582/cwist.git"
 ARG CWIST_REF="main"
 RUN git clone --depth 1 --branch "${CWIST_REF}" "${CWIST_REPO}" /app/cwist
+RUN git -C /app/cwist submodule update --init --recursive
 
 # 1. Install Headers (Include) manually to system paths
 # This resolves compilation issues where Makefiles use relative paths (e.g., -I../include)
