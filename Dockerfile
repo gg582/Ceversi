@@ -64,7 +64,10 @@ COPY public/ ./public/
 COPY index.html.tmpl .
 COPY style.css .
 COPY script.js .
-COPY othello.db .
+
+# Ensure the runtime image always has a database file to initialize even when
+# developers haven't pre-created ./othello.db locally.
+RUN touch othello.db
 
 EXPOSE 31744
 
