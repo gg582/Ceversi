@@ -36,7 +36,8 @@ RUN git -C /app/cwist submodule update --init --recursive
 WORKDIR /app/cwist
 RUN printf '#!/bin/sh\n/usr/bin/tcc -std=gnu17 "$@"\n' > /usr/local/bin/tcc && \
     chmod +x /usr/local/bin/tcc && \
-    cp -r /app/libttak/. lib/libttak/ && \
+    rm -rf lib/libttak && mkdir -p lib && \
+    cp -r /app/libttak lib/libttak && \
     LDFLAGS="${LDFLAGS} -fuse-ld=lld -Wl,--no-eh-frame-hdr" CC=tcc make && CC=tcc make install && \
     rm /usr/local/bin/tcc
 
