@@ -98,19 +98,14 @@ prepare_install_dir() {
         systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || true
     fi
 
+    rm -rf "$INSTALL_DIR"
     mkdir -p "$INSTALL_DIR"
-    install -m 755 "$REPO_ROOT/server" "$INSTALL_DIR/ceversi"
 
-    rm -rf "$INSTALL_DIR/public"
-    cp -rf "$REPO_ROOT/public" "$INSTALL_DIR/public"
-    cp -rf "$REPO_ROOT" "$INSTALL_DIR"
+    cp -a "$REPO_ROOT/." "$INSTALL_DIR/"
+    install -m 755 "$INSTALL_DIR/server" "$INSTALL_DIR/ceversi"
 
-    install -m 644 "$REPO_ROOT/index.html.tmpl" "$INSTALL_DIR/index.html.tmpl"
-    install -m 644 "$REPO_ROOT/style.css" "$INSTALL_DIR/style.css"
-    install -m 644 "$REPO_ROOT/script.js" "$INSTALL_DIR/script.js"
-
-    install -m 644 "$REPO_ROOT/server.crt" "$INSTALL_DIR/server.crt"
-    install -m 600 "$REPO_ROOT/server.key" "$INSTALL_DIR/server.key"
+    chmod 600 "$INSTALL_DIR/server.key"
+    chmod 644 "$INSTALL_DIR/server.crt"
 
     if [[ ! -f "$INSTALL_DIR/othello.db" ]]; then
         touch "$INSTALL_DIR/othello.db"
