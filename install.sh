@@ -57,8 +57,8 @@ build_libttak() {
     git clone --depth 1 --branch "$LIBTTAK_REF" "$LIBTTAK_REPO" "$TMP_DIR/libttak"
     pushd "$TMP_DIR/libttak" >/dev/null
     make clean >/dev/null 2>&1 || true
-    CC=tcc LDFLAGS="${LDFLAGS:-} -Wl,--no-eh-frame-hdr -fuse-ld=lld" make
-    CC=tcc make install
+    LDFLAGS="${LDFLAGS:-} -fuse-ld=lld" make
+    make install
     popd >/dev/null
 }
 
@@ -67,18 +67,18 @@ build_cwist() {
     git -C "$TMP_DIR/cwist" submodule update --init --recursive
 
     mkdir -p "$TMP_DIR/bin"
-    cat <<'WRAP' > "$TMP_DIR/bin/tcc"
+    cat <<'WRAP' > "$TMP_DIR/bin/gcc"
 #!/bin/sh
-/usr/bin/tcc -std=gnu17 "$@"
+/usr/bin/gcc -std=gnu17 "$@"
 WRAP
-    chmod +x "$TMP_DIR/bin/tcc"
+    chmod +x "$TMP_DIR/bin/gcc"
 
     pushd "$TMP_DIR/cwist" >/dev/null
     rm -rf lib/libttak
     mkdir -p lib
-    cp -r "$TMP_DIR/libttak" lib/libttak
-    PATH="$TMP_DIR/bin:$PATH" LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,--no-eh-frame-hdr" CC=tcc make
-    PATH="$TMP_DIR/bin:$PATH" CC=tcc make install
+    cp -rf "$TMP_DIR/libttak" lib/libttak
+    PATH="$TMP_DIR/bin:$PATH" LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,--no-eh-frame-hdr" CC=gcc make
+    PATH="$TMP_DIR/bin:$PATH" CC=gcc make install
     popd >/dev/null
 }
 
@@ -102,7 +102,8 @@ prepare_install_dir() {
     install -m 755 "$REPO_ROOT/server" "$INSTALL_DIR/ceversi"
 
     rm -rf "$INSTALL_DIR/public"
-    cp -a "$REPO_ROOT/public" "$INSTALL_DIR/public"
+    cp -rf "$REPO_ROOT/public" "$INSTALL_DIR/public"
+    cp -rf "$REPO_ROOT" "$INSTALL_DIR"
 
     install -m 644 "$REPO_ROOT/index.html.tmpl" "$INSTALL_DIR/index.html.tmpl"
     install -m 644 "$REPO_ROOT/style.css" "$INSTALL_DIR/style.css"
