@@ -34,11 +34,16 @@ RUN git -C /app/cwist submodule update --init --recursive
 # Build libcwist.a and copy it to /usr/lib so the linker finds it automatically
 # without needing specific -L flags.
 WORKDIR /app/cwist
-RUN printf '#!/bin/sh\n/usr/bin/tcc -std=gnu17 "$@"\n' > /usr/local/bin/tcc && \
-    chmod +x /usr/local/bin/tcc && \
+RUN cat <<'EOF' >/usr/local/bin/tcc
+#!/bin/sh
+/usr/bin/tcc -std=gnu17 "$@"
+EOF
+
+RUN chmod +x /usr/local/bin/tcc && \
     rm -rf lib/libttak && mkdir -p lib && \
     cp -r /app/libttak lib/libttak && \
-    LDFLAGS="${LDFLAGS} -fuse-ld=lld -Wl,--no-eh-frame-hdr" CC=tcc make && CC=tcc make install && \
+    env LDFLAGS="${LDFLAGS} -fuse-ld=lld -Wl,--no-eh-frame-hdr" CC=tcc make && \
+    env CC=tcc make install && \
     rm /usr/local/bin/tcc
 
 # 3. Build Main Server
