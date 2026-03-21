@@ -26,7 +26,7 @@ if ! command -v systemctl >/dev/null; then
 fi
 
 install_packages() {
-    local packages=(build-essential clang lld tcc pkg-config git sqlite3 libsqlite3-dev libssl-dev libcjson-dev liburiparser-dev ca-certificates openssl)
+    local packages=(build-essential clang lld tcc pkg-config git sqlite3 libsqlite3-dev libssl-dev libcjson-dev liburiparser-dev ca-certificates openssl cmake)
     if command -v apt-get >/dev/null; then
         export DEBIAN_FRONTEND=noninteractive
         apt-get update
