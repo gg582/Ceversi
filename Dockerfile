@@ -5,7 +5,7 @@ FROM alpine:latest AS c_builder
 # Using edge community repository to ensure latest versions of libraries
 RUN apk update
 RUN apk add --no-cache \
-    tcc clang lld musl-dev make sqlite-dev openssl-dev cjson-dev uriparser-dev git libc-utils linux-headers \
+    tcc clang lld musl-dev make sqlite-dev openssl-dev cjson-dev uriparser-dev git libc-utils linux-headers cmake \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community
 
 WORKDIR /app
@@ -18,8 +18,8 @@ ARG LIBTTAK_REF="main"
 
 RUN git clone --depth 1 --branch "${LIBTTAK_REF}" "${LIBTTAK_REPO}" /app/libttak
 WORKDIR /app/libttak
-RUN make clean && CC=tcc LDFLAGS="${LDFLAGS} -Wl,--no-eh-frame-hdr -fuse-ld=lld" make && \
-    CC=tcc make install
+RUN make clean && LDFLAGS="${LDFLAGS} -Wl,--no-eh-frame-hdr -fuse-ld=lld" make && \
+    make install
 
 ARG CWIST_REPO="https://github.com/gg582/cwist.git"
 ARG CWIST_REF="main"
@@ -34,17 +34,17 @@ RUN git -C /app/cwist submodule update --init --recursive
 # Build libcwist.a and copy it to /usr/lib so the linker finds it automatically
 # without needing specific -L flags.
 WORKDIR /app/cwist
-RUN cat <<'EOF' >/usr/local/bin/tcc
+RUN cat <<'EOF' >/usr/bin/gcc
 #!/bin/sh
-/usr/bin/tcc -std=gnu17 "$@"
+/usr/bin/gcc -std=gnu17 "$@"
 EOF
 
-RUN chmod +x /usr/local/bin/tcc && \
+RUN chmod +x /usr/bin/gcc && \
     rm -rf lib/libttak && mkdir -p lib && \
     cp -r /app/libttak lib/libttak && \
-    env LDFLAGS="${LDFLAGS} -fuse-ld=lld -Wl,--no-eh-frame-hdr" CC=tcc make && \
-    env CC=tcc make install && \
-    rm /usr/local/bin/tcc
+    env LDFLAGS="${LDFLAGS} -fuse-ld=lld -Wl,--no-eh-frame-hdr" CC=gcc make && \
+    env CC=gcc make install && \
+    rm /usr/local/bin/gcc
 
 # 3. Build Main Server
 # Navigate back to root to build the backend server binary
