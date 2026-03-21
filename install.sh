@@ -60,6 +60,7 @@ build_libttak() {
     LDFLAGS="${LDFLAGS:-} -fuse-ld=lld" make
     make install
     popd >/dev/null
+    ldconfig
 }
 
 build_cwist() {
@@ -80,6 +81,7 @@ WRAP
     PATH="$TMP_DIR/bin:$PATH" LDFLAGS="${LDFLAGS:-} -fuse-ld=lld -Wl,--no-eh-frame-hdr" CC=gcc make
     PATH="$TMP_DIR/bin:$PATH" CC=gcc make install
     popd >/dev/null
+    ldconfig
 }
 
 build_libttak
