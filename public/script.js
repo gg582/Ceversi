@@ -423,34 +423,7 @@ function updateUI() {
     turnIndicator.innerText = turnText;
 }
 
-// --- Bot AI Logic (Simplified for brevity) ---
-// Note: Keeping existing AI logic but ensuring it uses new helpers if needed.
-// The previous logic was self-contained in botTurn/minimax/etc.
-
-function botTurn() {
-    if (!gameActive || isMultiplayer) return;
-    
-    const moves = getValidMoves(WHITE);
-    if (moves.length === 0) return;
-
-    // Use a small delay to make it feel natural
-    let move;
-    if (currentDifficulty === 'easy') {
-        move = moves[Math.floor(Math.random() * moves.length)];
-    } else {
-        // Simple heuristic for now to ensure responsiveness
-        // Re-implementing the full minimax here would be lengthy, 
-        // sticking to a strong greedy/weighted strategy for 'medium'/'hard' in this refactor
-        // or re-using the previous logic if I had copied it fully.
-        // For this refactor, I'll use a weighted heuristic.
-        move = getBestMoveHeuristic(moves);
-    }
-
-    applyMove(move.r, move.c, WHITE);
-    currentPlayer = BLACK;
-    checkTurn(BLACK);
-}
-
+// --- Bot AI Logic ---
 const weights = [
     [100, -20, 10,  5,  5, 10, -20, 100],
     [-20, -50, -2, -2, -2, -2, -50, -20],
@@ -461,6 +434,59 @@ const weights = [
     [-20, -50, -2, -2, -2, -2, -50, -20],
     [100, -20, 10,  5,  5, 10, -20, 100]
 ];
+
+const precisionWeights = [
+    [100, -25,  10,   5,   5,  10, -25, 100],
+    [-25, -40,  -3,  -3,  -3,  -3, -40, -25],
+    [ 10,  -3,   2,   2,   2,   2,  -3,  10],
+    [  5,  -3,   2,   1,   1,   2,  -3,   5],
+    [  5,  -3,   2,   1,   1,   2,  -3,   5],
+    [ 10,  -3,   2,   2,   2,   2,  -3,  10],
+    [-25, -40,  -3,  -3,  -3,  -3, -40, -25],
+    [100, -25,  10,   5,   5,  10, -25, 100]
+];
+
+function evaluateBoard(targetBoard, player) {
+    let score = 0;
+    const opponent = (player === BLACK) ? WHITE : BLACK;
+    for (let r = 0; r < SIZE; r++) {
+        for (let c = 0; c < SIZE; c++) {
+            if (targetBoard[r][c] === player) score += precisionWeights[r][c];
+            else if (targetBoard[r][c] === opponent) score -= precisionWeights[r][c];
+        }
+    }
+    return score;
+}
+
+function minimax(targetBoard, depth, isMaximizing, player) {
+    const activePlayer = isMaximizing ? player : (player === BLACK ? WHITE : BLACK);
+    const moves = getValidMoves(activePlayer, targetBoard);
+
+    if (depth === 0 || moves.length === 0) {
+        return evaluateBoard(targetBoard, player);
+    }
+
+    if (isMaximizing) {
+        let maxEval = -Infinity;
+        for (const move of moves) {
+            const newBoard = targetBoard.map(row => [...row]);
+            applyMove(move.r, move.c, player, newBoard);
+            const evalScore = minimax(newBoard, depth - 1, false, player);
+            maxEval = Math.max(maxEval, evalScore);
+        }
+        return maxEval;
+    } else {
+        let minEval = Infinity;
+        const opponent = (player === BLACK) ? WHITE : BLACK;
+        for (const move of moves) {
+            const newBoard = targetBoard.map(row => [...row]);
+            applyMove(move.r, move.c, opponent, newBoard);
+            const evalScore = minimax(newBoard, depth - 1, true, player);
+            minEval = Math.min(minEval, evalScore);
+        }
+        return minEval;
+    }
+}
 
 function getBestMoveHeuristic(moves) {
     let bestMove = moves[0];
@@ -473,6 +499,36 @@ function getBestMoveHeuristic(moves) {
         }
     }
     return bestMove;
+}
+
+function botTurn() {
+    if (!gameActive || isMultiplayer) return;
+    
+    const moves = getValidMoves(WHITE);
+    if (moves.length === 0) return;
+
+    let move;
+    if (currentDifficulty === 'easy') {
+        move = Math.random() < 0.2 ? moves[Math.floor(Math.random() * moves.length)] : getBestMoveHeuristic(moves);
+    } else if (currentDifficulty === 'medium') {
+        move = getBestMoveHeuristic(moves);
+    } else {
+        let bestScore = -Infinity;
+        move = moves[0];
+        for (const m of moves) {
+            const nextBoard = board.map(row => [...row]);
+            applyMove(m.r, m.c, WHITE, nextBoard);
+            const score = minimax(nextBoard, 3, false, WHITE);
+            if (score > bestScore) {
+                bestScore = score;
+                move = m;
+            }
+        }
+    }
+
+    applyMove(move.r, move.c, WHITE);
+    currentPlayer = BLACK;
+    checkTurn(BLACK);
 }
 
 // --- Render ---
