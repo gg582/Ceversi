@@ -16,9 +16,9 @@
             </div>
             
             <div class="nav-links">
-                <a href="#" class="active" onclick="showView('lobby')">Play</a>
-                <a href="#" onclick="showRankings()">Rank</a>
-                <a href="#" onclick="showBettingZone()">Betting</a>
+                <a id="nav-play" href="#" class="active" onclick="showView('lobby'); return false;">Play</a>
+                <a id="nav-rank" href="#" onclick="showRankings(); return false;">Rank</a>
+                <a id="nav-betting" href="#" onclick="showBettingZone(); return false;">Betting</a>
                 
                 <div id="auth-controls">
                     <button class="btn btn-primary btn-sm" onclick="showAuthModal()">Login</button>
@@ -64,7 +64,7 @@
                             <button class="btn btn-outline" onclick="startLocalGame('reversi')">Reversi</button>
                         </div>
                         <div class="form-group">
-                            <label>SinglePlayer Sessions (isolated)</label>
+                            <label>SinglePlayer Sessions</label>
                             <div id="single-session-list" style="font-size:0.85rem; color:var(--text-secondary);">Local only sessions</div>
                         </div>
                     </div>
@@ -83,7 +83,7 @@
                             <button class="btn btn-outline" onclick="startMultiplayerGame('reversi')">Join Reversi</button>
                         </div>
                         <div class="form-group">
-                            <label>Multiplayer Sessions (isolated)</label>
+                            <label>Multiplayer Rooms</label>
                             <div id="multi-session-list" style="font-size:0.85rem; color:var(--text-secondary);">Loading rooms...</div>
                         </div>
                     </div>

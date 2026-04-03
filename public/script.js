@@ -151,13 +151,20 @@ function logout() {
 // --- View Management ---
 function showView(viewId) {
     document.querySelectorAll('.view-container').forEach(v => v.classList.add('hidden'));
-    document.getElementById(viewId).classList.remove('hidden');
+    const targetView = document.getElementById(viewId);
+    if (!targetView) return;
+    targetView.classList.remove('hidden');
 
     document.querySelectorAll('.nav-links a').forEach(a => a.classList.remove('active'));
-    const navLink = Array.from(document.querySelectorAll('.nav-links a')).find(a => (a.getAttribute('onclick') || '').includes(`'${viewId}'`));
-    if (navLink) navLink.classList.add('active');
+    const map = {
+        lobby: 'nav-play',
+        rankings: 'nav-rank',
+        'betting-zone': 'nav-betting'
+    };
+    const navId = map[viewId] || 'nav-play';
+    const activeLink = document.getElementById(navId);
+    if (activeLink) activeLink.classList.add('active');
 }
-
 
 
 async function refreshSessionLists() {
