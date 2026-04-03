@@ -25,6 +25,12 @@ let currentDifficulty = 'medium';
 // --- Auth State ---
 let currentUser = JSON.parse(localStorage.getItem('user')) || null;
 let authMode = 'login'; // 'login' or 'register'
+let bettingGuestId = localStorage.getItem('betting_guest_id');
+if (!bettingGuestId) {
+    bettingGuestId = `g${Date.now()}${Math.floor(Math.random()*10000)}`;
+    localStorage.setItem('betting_guest_id', bettingGuestId);
+}
+
 
 function getNicknameColor(wins, losses) {
     const total = wins + losses;
@@ -145,10 +151,44 @@ function logout() {
 // --- View Management ---
 function showView(viewId) {
     document.querySelectorAll('.view-container').forEach(v => v.classList.add('hidden'));
-    document.getElementById(viewId).classList.remove('hidden');
-    
+    const targetView = document.getElementById(viewId);
+    if (!targetView) return;
+    targetView.classList.remove('hidden');
+
     document.querySelectorAll('.nav-links a').forEach(a => a.classList.remove('active'));
-    if (viewId === 'lobby') document.querySelector('.nav-links a:first-child').classList.add('active');
+    const map = {
+        lobby: 'nav-play',
+        rankings: 'nav-rank',
+        'betting-zone': 'nav-betting'
+    };
+    const navId = map[viewId] || 'nav-play';
+    const activeLink = document.getElementById(navId);
+    if (activeLink) activeLink.classList.add('active');
+}
+
+
+async function refreshSessionLists() {
+    const singleEl = document.getElementById('single-session-list');
+    const multiEl = document.getElementById('multi-session-list');
+
+    const singleSessions = JSON.parse(localStorage.getItem('single_sessions') || '[]');
+    if (singleSessions.length === 0) {
+        singleEl.innerText = 'No local session yet';
+    } else {
+        singleEl.innerText = singleSessions.map((s) => `${s.mode} (${s.difficulty})`).join(', ');
+    }
+
+    try {
+        const res = await fetch('/rooms');
+        const rooms = await res.json();
+        if (!rooms.length) {
+            multiEl.innerText = 'No multiplayer room yet';
+        } else {
+            multiEl.innerText = rooms.map((r) => `#${r.room_id} ${r.mode} [${r.status}]`).join(' | ');
+        }
+    } catch (e) {
+        multiEl.innerText = 'Failed to load multiplayer sessions';
+    }
 }
 
 async function showRankings() {
@@ -183,6 +223,7 @@ async function showRankings() {
 // Update UI on load
 document.addEventListener('DOMContentLoaded', () => {
     updateAuthUI();
+    refreshSessionLists();
 });
 
 const directions = [
@@ -574,6 +615,10 @@ function startLocalGame(mode) {
     isMultiplayer = false;
     myPlayerId = 0;
     currentDifficulty = document.getElementById('difficulty-select').value;
+    const singleSessions = JSON.parse(localStorage.getItem('single_sessions') || '[]');
+    singleSessions.unshift({ mode, difficulty: currentDifficulty, ts: Date.now() });
+    localStorage.setItem('single_sessions', JSON.stringify(singleSessions.slice(0, 8)));
+    refreshSessionLists();
     if (pollInterval) clearInterval(pollInterval);
     initGame(mode);
 }
@@ -605,6 +650,7 @@ async function startMultiplayerGame(mode) {
         
         pollInterval = setInterval(() => pollState(roomId), 1000);
         pollState(roomId);
+        refreshSessionLists();
         
     } catch (e) {
         alert(e.message);
@@ -667,6 +713,78 @@ async function sendMove(r, c) {
         });
         pollState(roomId);
     } catch (e) { console.error(e); }
+}
+
+
+function showBettingZone() {
+    showView('betting-zone');
+    loadBettingZone();
+}
+
+async function loadBettingZone() {
+    try {
+        const userId = currentUser ? currentUser.user_id : 0;
+        const enterRes = await fetch(`/betting/enter?user_id=${userId}&guest_id=${bettingGuestId}`);
+        const enterData = await enterRes.json();
+        document.getElementById('betting-points').innerText = enterData.points;
+
+        const slotsRes = await fetch('/betting/slots');
+        const slotsData = await slotsRes.json();
+        const container = document.getElementById('betting-slots');
+        container.innerHTML = '';
+
+        slotsData.slots.forEach((slot) => {
+            const row = document.createElement('div');
+            row.style.border = '1px solid var(--border-color)';
+            row.style.padding = '0.75rem';
+            row.style.borderRadius = '0.6rem';
+            row.innerHTML = `
+                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                    <strong>Slot #${slot.slot_id} (${slot.difficulty})</strong>
+                    <span>odds W:${slot.odds_win.toFixed(2)} / L:${slot.odds_lose.toFixed(2)} / D:${slot.odds_draw.toFixed(2)}</span>
+                </div>
+                <div style="margin-top:0.5rem;display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
+                    <input type="number" min="1" value="100" id="bet-amount-${slot.slot_id}" style="max-width:100px;">
+                    <button class="btn btn-primary btn-sm" onclick="placeBet(${slot.slot_id}, 'win')">Win</button>
+                    <button class="btn btn-outline btn-sm" onclick="placeBet(${slot.slot_id}, 'lose')">Lose</button>
+                    <button class="btn btn-outline btn-sm" onclick="placeBet(${slot.slot_id}, 'draw')">Draw</button>
+                </div>
+            `;
+            container.appendChild(row);
+        });
+    } catch (e) {
+        alert('Failed to load betting zone');
+    }
+}
+
+async function placeBet(slotId, outcome) {
+    const amount = parseInt(document.getElementById(`bet-amount-${slotId}`).value || '0', 10);
+    if (amount <= 0) {
+        alert('Enter valid amount');
+        return;
+    }
+
+    const payload = {
+        slot_id: slotId,
+        outcome,
+        amount,
+        guest_id: bettingGuestId,
+        user_id: currentUser ? currentUser.user_id : 0
+    };
+
+    const res = await fetch('/betting/place', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+        alert(data.error || 'Bet failed');
+        return;
+    }
+
+    const reviveText = data.revived ? ' | revived to 1000' : '';
+    alert(`${data.success ? 'Success' : 'Fail'} | result=${data.result} | delta=${data.delta} | points=${data.points}${reviveText}`);
+    document.getElementById('betting-points').innerText = data.points;
 }
 
 // --- Theme Management ---

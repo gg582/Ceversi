@@ -2,6 +2,7 @@
 #define DB_H
 
 #include <cwist/core/db/sql.h>
+#include <cjson/cJSON.h>
 #include "common.h"
 
 extern cwist_db *db_conn;
@@ -19,5 +20,11 @@ int db_register_user(cwist_db *db, const char *username, const char *password_ha
 int db_login_user(cwist_db *db, const char *username, const char *password_hash);
 cJSON *db_get_rankings(cwist_db *db);
 cJSON *db_get_user_info(cwist_db *db, int user_id);
+cJSON *db_get_multiplayer_rooms(cwist_db *db);
+
+void db_refresh_betting_slots(cwist_db *db);
+cJSON *db_get_betting_slots(cwist_db *db);
+int db_get_betting_points(cwist_db *db, const char *identity, int *points);
+int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *outcome, int amount, cJSON **result_json);
 
 #endif
