@@ -30,6 +30,36 @@ if (!bettingGuestId) {
     bettingGuestId = `g${Date.now()}${Math.floor(Math.random()*10000)}`;
     localStorage.setItem('betting_guest_id', bettingGuestId);
 }
+let sessionGuestId = localStorage.getItem('session_guest_id');
+if (!sessionGuestId) {
+    sessionGuestId = `s${Date.now()}${Math.floor(Math.random()*10000)}`;
+    localStorage.setItem('session_guest_id', sessionGuestId);
+}
+
+function sessionIdentityQuery() {
+    const userId = currentUser ? currentUser.user_id : 0;
+    return `user_id=${userId}&guest_id=${encodeURIComponent(sessionGuestId)}`;
+}
+
+async function logGameSession(sessionType, mode, difficulty = '', roomId = 0) {
+    const payload = {
+        session_type: sessionType,
+        mode,
+        difficulty,
+        room_id: roomId,
+        guest_id: sessionGuestId,
+        user_id: currentUser ? currentUser.user_id : 0
+    };
+    try {
+        await fetch('/sessions/log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+    } catch (e) {
+        console.error(e);
+    }
+}
 
 
 function getNicknameColor(wins, losses) {
@@ -127,6 +157,7 @@ async function handleAuthSubmit() {
                 localStorage.setItem('user', JSON.stringify(data));
                 updateAuthUI();
                 hideAuthModal();
+                refreshSessionLists();
             } else {
                 alert("Registration successful! Please login.");
                 authMode = 'login';
@@ -146,6 +177,7 @@ function logout() {
     currentUser = null;
     localStorage.removeItem('user');
     updateAuthUI();
+    refreshSessionLists();
 }
 
 // --- View Management ---
@@ -170,23 +202,26 @@ function showView(viewId) {
 async function refreshSessionLists() {
     const singleEl = document.getElementById('single-session-list');
     const multiEl = document.getElementById('multi-session-list');
-
-    const singleSessions = JSON.parse(localStorage.getItem('single_sessions') || '[]');
-    if (singleSessions.length === 0) {
-        singleEl.innerText = 'No local session yet';
-    } else {
-        singleEl.innerText = singleSessions.map((s) => `${s.mode} (${s.difficulty})`).join(', ');
-    }
-
     try {
-        const res = await fetch('/rooms');
-        const rooms = await res.json();
+        const singleRes = await fetch(`/sessions?type=singleplayer&limit=8&${sessionIdentityQuery()}`);
+        const singleData = await singleRes.json();
+        const singleSessions = Array.isArray(singleData.sessions) ? singleData.sessions : [];
+        if (!singleSessions.length) {
+            singleEl.innerText = 'No singleplayer session yet';
+        } else {
+            singleEl.innerText = singleSessions.map((s) => `${s.mode}${s.difficulty ? ` (${s.difficulty})` : ''}`).join(', ');
+        }
+
+        const multiRes = await fetch(`/sessions?type=multiplayer&limit=8&${sessionIdentityQuery()}`);
+        const multiData = await multiRes.json();
+        const rooms = Array.isArray(multiData.sessions) ? multiData.sessions : [];
         if (!rooms.length) {
             multiEl.innerText = 'No multiplayer room yet';
         } else {
-            multiEl.innerText = rooms.map((r) => `#${r.room_id} ${r.mode} [${r.status}]`).join(' | ');
+            multiEl.innerText = rooms.map((r) => `#${r.room_id || 0} ${r.mode}`).join(' | ');
         }
     } catch (e) {
+        singleEl.innerText = 'Failed to load singleplayer sessions';
         multiEl.innerText = 'Failed to load multiplayer sessions';
     }
 }
@@ -224,6 +259,13 @@ async function showRankings() {
 document.addEventListener('DOMContentLoaded', () => {
     updateAuthUI();
     refreshSessionLists();
+    const bettingNav = document.getElementById('nav-betting');
+    if (bettingNav) {
+        bettingNav.addEventListener('click', (e) => {
+            e.preventDefault();
+            showBettingZone();
+        });
+    }
 });
 
 const directions = [
@@ -615,9 +657,7 @@ function startLocalGame(mode) {
     isMultiplayer = false;
     myPlayerId = 0;
     currentDifficulty = document.getElementById('difficulty-select').value;
-    const singleSessions = JSON.parse(localStorage.getItem('single_sessions') || '[]');
-    singleSessions.unshift({ mode, difficulty: currentDifficulty, ts: Date.now() });
-    localStorage.setItem('single_sessions', JSON.stringify(singleSessions.slice(0, 8)));
+    logGameSession('singleplayer', mode, currentDifficulty, 0);
     refreshSessionLists();
     if (pollInterval) clearInterval(pollInterval);
     initGame(mode);
@@ -627,10 +667,12 @@ async function startMultiplayerGame(mode) {
     const roomId = document.getElementById('room-input').value;
     const userId = currentUser ? currentUser.user_id : 0;
     // status feedback
-    const btn = event.target;
-    const originalText = btn.innerText;
-    btn.innerText = "Connecting...";
-    btn.disabled = true;
+    const btn = (event && event.target) ? event.target : null;
+    const originalText = btn ? btn.innerText : "";
+    if (btn) {
+        btn.innerText = "Connecting...";
+        btn.disabled = true;
+    }
 
     try {
         const res = await fetch(`/join?room=${roomId}&mode=${mode}&user_id=${userId}`, { method: 'POST' });
@@ -650,13 +692,16 @@ async function startMultiplayerGame(mode) {
         
         pollInterval = setInterval(() => pollState(roomId), 1000);
         pollState(roomId);
+        logGameSession('multiplayer', currentMode, '', parseInt(roomId, 10) || 0);
         refreshSessionLists();
         
     } catch (e) {
         alert(e.message);
     } finally {
-        btn.innerText = originalText;
-        btn.disabled = false;
+        if (btn) {
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
     }
 }
 
@@ -725,15 +770,18 @@ async function loadBettingZone() {
     try {
         const userId = currentUser ? currentUser.user_id : 0;
         const enterRes = await fetch(`/betting/enter?user_id=${userId}&guest_id=${bettingGuestId}`);
+        if (!enterRes.ok) throw new Error('betting-enter-failed');
         const enterData = await enterRes.json();
         document.getElementById('betting-points').innerText = enterData.points;
 
         const slotsRes = await fetch('/betting/slots');
+        if (!slotsRes.ok) throw new Error('betting-slots-failed');
         const slotsData = await slotsRes.json();
         const container = document.getElementById('betting-slots');
         container.innerHTML = '';
 
-        slotsData.slots.forEach((slot) => {
+        const slots = Array.isArray(slotsData.slots) ? slotsData.slots : [];
+        slots.forEach((slot) => {
             const row = document.createElement('div');
             row.style.border = '1px solid var(--border-color)';
             row.style.padding = '0.75rem';
