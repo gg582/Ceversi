@@ -386,6 +386,111 @@ void user_info_handler(cwist_http_request *req, cwist_http_response *res) {
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
 }
 
+
+void rooms_handler(cwist_http_request *req, cwist_http_response *res) {
+    cJSON *rooms = db_get_multiplayer_rooms(req->db);
+    char *str = cJSON_PrintUnformatted(rooms);
+    cwist_sstring_assign(res->body, str);
+    cev_mem_free(str);
+    cJSON_Delete(rooms);
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+}
+
+static void build_identity(cwist_http_request *req, char *identity, size_t n) {
+    const char *user_id_str = cwist_query_map_get(req->query_params, "user_id");
+    const char *guest_id = cwist_query_map_get(req->query_params, "guest_id");
+    if (user_id_str && strlen(user_id_str) > 0 && atoi(user_id_str) > 0) {
+        snprintf(identity, n, "user:%d", atoi(user_id_str));
+    } else if (guest_id && strlen(guest_id) > 0) {
+        snprintf(identity, n, "guest:%s", guest_id);
+    } else {
+        snprintf(identity, n, "guest:default");
+    }
+}
+
+void betting_enter_handler(cwist_http_request *req, cwist_http_response *res) {
+    char identity[128];
+    build_identity(req, identity, sizeof(identity));
+    int points = 1000;
+    if (db_get_betting_points(req->db, identity, &points) != 0) {
+        res->status_code = CWIST_HTTP_BAD_REQUEST;
+        return;
+    }
+
+    cJSON *reply = cJSON_CreateObject();
+    cJSON_AddStringToObject(reply, "identity", identity);
+    cJSON_AddNumberToObject(reply, "points", points);
+    char *str = cJSON_PrintUnformatted(reply);
+    cwist_sstring_assign(res->body, str);
+    cev_mem_free(str);
+    cJSON_Delete(reply);
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+}
+
+void betting_slots_handler(cwist_http_request *req, cwist_http_response *res) {
+    cJSON *slots = db_get_betting_slots(req->db);
+    cJSON *reply = cJSON_CreateObject();
+    cJSON_AddItemToObject(reply, "slots", slots);
+    cJSON_AddNumberToObject(reply, "refresh_interval_sec", 3600);
+
+    char *str = cJSON_PrintUnformatted(reply);
+    cwist_sstring_assign(res->body, str);
+    cev_mem_free(str);
+    cJSON_Delete(reply);
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+}
+
+void betting_place_handler(cwist_http_request *req, cwist_http_response *res) {
+    cJSON *json = cJSON_Parse(req->body->data);
+    if (!json) {
+        res->status_code = CWIST_HTTP_BAD_REQUEST;
+        return;
+    }
+
+    cJSON *slot_item = cJSON_GetObjectItem(json, "slot_id");
+    cJSON *outcome_item = cJSON_GetObjectItem(json, "outcome");
+    cJSON *amount_item = cJSON_GetObjectItem(json, "amount");
+    cJSON *guest_item = cJSON_GetObjectItem(json, "guest_id");
+    cJSON *user_item = cJSON_GetObjectItem(json, "user_id");
+
+    char identity[128];
+    if (user_item && cJSON_IsNumber(user_item) && user_item->valueint > 0) {
+        snprintf(identity, sizeof(identity), "user:%d", user_item->valueint);
+    } else if (guest_item && guest_item->valuestring && strlen(guest_item->valuestring) > 0) {
+        snprintf(identity, sizeof(identity), "guest:%s", guest_item->valuestring);
+    } else {
+        snprintf(identity, sizeof(identity), "guest:default");
+    }
+
+    if (!slot_item || !outcome_item || !amount_item || !outcome_item->valuestring) {
+        res->status_code = CWIST_HTTP_BAD_REQUEST;
+        cJSON_Delete(json);
+        return;
+    }
+
+    cJSON *result = NULL;
+    int rc = db_apply_bet(req->db, identity, slot_item->valueint, outcome_item->valuestring, amount_item->valueint, &result);
+    if (rc != 0) {
+        cJSON *err = cJSON_CreateObject();
+        if (rc == -3) cJSON_AddStringToObject(err, "error", "Point limit exceeded (-10000)");
+        else cJSON_AddStringToObject(err, "error", "Invalid bet request");
+        char *err_str = cJSON_PrintUnformatted(err);
+        cwist_sstring_assign(res->body, err_str);
+        cev_mem_free(err_str);
+        cJSON_Delete(err);
+        res->status_code = CWIST_HTTP_BAD_REQUEST;
+        cJSON_Delete(json);
+        return;
+    }
+
+    char *str = cJSON_PrintUnformatted(result);
+    cwist_sstring_assign(res->body, str);
+    cev_mem_free(str);
+    cJSON_Delete(result);
+    cJSON_Delete(json);
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+}
+
 void root_handler(cwist_http_request *req, cwist_http_response *res) {
     const char *room_str = cwist_query_map_get(req->query_params, "room");
     cJSON *context = cJSON_CreateObject();

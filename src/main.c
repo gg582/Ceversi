@@ -81,6 +81,10 @@ int main(int argc, char **argv) {
     cwist_app_post(app, "/register", register_handler);
     cwist_app_get(app, "/rankings", rankings_handler);
     cwist_app_get(app, "/user_info", user_info_handler);
+    cwist_app_get(app, "/rooms", rooms_handler);
+    cwist_app_get(app, "/betting/enter", betting_enter_handler);
+    cwist_app_get(app, "/betting/slots", betting_slots_handler);
+    cwist_app_post(app, "/betting/place", betting_place_handler);
     
     // Static files fallback
     cwist_app_static(app, "/static", "./public"); 
