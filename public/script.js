@@ -781,26 +781,51 @@ async function loadBettingZone() {
         container.innerHTML = '';
 
         const slots = Array.isArray(slotsData.slots) ? slotsData.slots : [];
+        if (slots.length === 0) {
+            const empty = document.createElement('div');
+            empty.style.opacity = '0.8';
+            empty.innerText = 'No betting slots right now. Please refresh.';
+            container.appendChild(empty);
+            return;
+        }
+
         slots.forEach((slot) => {
+            const slotId = Number(slot.slot_id);
+            const oddsWin = Number(slot.odds_win);
+            const oddsLose = Number(slot.odds_lose);
+            const oddsDraw = Number(slot.odds_draw);
+
+            if (!Number.isFinite(slotId) || !Number.isFinite(oddsWin) || !Number.isFinite(oddsLose) || !Number.isFinite(oddsDraw)) {
+                return;
+            }
+
             const row = document.createElement('div');
             row.style.border = '1px solid var(--border-color)';
             row.style.padding = '0.75rem';
             row.style.borderRadius = '0.6rem';
             row.innerHTML = `
                 <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                    <strong>Slot #${slot.slot_id} (${slot.difficulty})</strong>
-                    <span>odds W:${slot.odds_win.toFixed(2)} / L:${slot.odds_lose.toFixed(2)} / D:${slot.odds_draw.toFixed(2)}</span>
+                    <strong>Slot #${slotId} (${slot.difficulty || 'unknown'})</strong>
+                    <span>odds W:${oddsWin.toFixed(2)} / L:${oddsLose.toFixed(2)} / D:${oddsDraw.toFixed(2)}</span>
                 </div>
                 <div style="margin-top:0.5rem;display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
-                    <input type="number" min="1" value="100" id="bet-amount-${slot.slot_id}" style="max-width:100px;">
-                    <button class="btn btn-primary btn-sm" onclick="placeBet(${slot.slot_id}, 'win')">Win</button>
-                    <button class="btn btn-outline btn-sm" onclick="placeBet(${slot.slot_id}, 'lose')">Lose</button>
-                    <button class="btn btn-outline btn-sm" onclick="placeBet(${slot.slot_id}, 'draw')">Draw</button>
+                    <input type="number" min="1" value="100" id="bet-amount-${slotId}" style="max-width:100px;">
+                    <button class="btn btn-primary btn-sm" onclick="placeBet(${slotId}, 'win')">Win</button>
+                    <button class="btn btn-outline btn-sm" onclick="placeBet(${slotId}, 'lose')">Lose</button>
+                    <button class="btn btn-outline btn-sm" onclick="placeBet(${slotId}, 'draw')">Draw</button>
                 </div>
             `;
             container.appendChild(row);
         });
+
+        if (!container.children.length) {
+            const invalid = document.createElement('div');
+            invalid.style.opacity = '0.8';
+            invalid.innerText = 'Betting slots are temporarily unavailable. Please refresh.';
+            container.appendChild(invalid);
+        }
     } catch (e) {
+        console.error('loadBettingZone failed:', e);
         alert('Failed to load betting zone');
     }
 }
