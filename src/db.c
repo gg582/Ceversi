@@ -555,12 +555,6 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
         return -2;
     }
 
-    if (points - (int)(amount * 1.1f) < -10000) {
-        cJSON_Delete(slot_res);
-        pthread_mutex_unlock(&db_mutex);
-        return -3;
-    }
-
     cJSON *slot = cJSON_GetArrayItem(slot_res, 0);
     const char *actual_result = cJSON_GetObjectItem(slot, "result")->valuestring;
     double odds = 1.0;
@@ -581,6 +575,11 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
         delta = -(int)(amount * 1.1f);
     }
     points += delta;
+    int revived = 0;
+    if (points <= -10000) {
+        points = 1000;
+        revived = 1;
+    }
 
     char upd[512];
     snprintf(upd, sizeof(upd), "UPDATE betting_users SET points = %d, updated_at=CURRENT_TIMESTAMP WHERE identity='%s';", points, identity);
@@ -592,6 +591,7 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
     cJSON_AddNumberToObject(result, "points", points);
     cJSON_AddStringToObject(result, "result", actual_result);
     cJSON_AddNumberToObject(result, "odds", odds);
+    cJSON_AddBoolToObject(result, "revived", revived);
     *result_json = result;
 
     cJSON_Delete(slot_res);

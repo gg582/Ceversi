@@ -775,7 +775,8 @@ async function placeBet(slotId, outcome) {
         return;
     }
 
-    alert(`${data.success ? 'Success' : 'Fail'} | result=${data.result} | delta=${data.delta} | points=${data.points}`);
+    const reviveText = data.revived ? ' | revived to 1000' : '';
+    alert(`${data.success ? 'Success' : 'Fail'} | result=${data.result} | delta=${data.delta} | points=${data.points}${reviveText}`);
     document.getElementById('betting-points').innerText = data.points;
 }
 
