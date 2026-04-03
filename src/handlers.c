@@ -64,10 +64,30 @@ static int get_room_id(cwist_http_request *req) {
 static void build_session_identity(cwist_http_request *req, char *identity, size_t n) {
     const char *user_id_str = cwist_query_map_get(req->query_params, "user_id");
     const char *guest_id = cwist_query_map_get(req->query_params, "guest_id");
-    if (user_id_str && strlen(user_id_str) > 0 && atoi(user_id_str) > 0) {
-        snprintf(identity, n, "user:%d", atoi(user_id_str));
+    int user_id = (user_id_str && strlen(user_id_str) > 0) ? atoi(user_id_str) : 0;
+    if (user_id > 0) {
+        snprintf(identity, n, "user:%d", user_id);
     } else if (guest_id && strlen(guest_id) > 0) {
         snprintf(identity, n, "guest:%s", guest_id);
+    } else {
+        snprintf(identity, n, "guest:default");
+    }
+}
+
+static int parse_positive_int_or_default(const char *s, int fallback) {
+    if (!s || strlen(s) == 0) return fallback;
+    for (int i = 0; s[i]; i++) {
+        if (!isdigit((unsigned char)s[i])) return fallback;
+    }
+    int v = atoi(s);
+    return v > 0 ? v : fallback;
+}
+
+static void build_identity_from_json(cJSON *user_item, cJSON *guest_item, char *identity, size_t n) {
+    if (user_item && cJSON_IsNumber(user_item) && user_item->valueint > 0) {
+        snprintf(identity, n, "user:%d", user_item->valueint);
+    } else if (guest_item && guest_item->valuestring && strlen(guest_item->valuestring) > 0) {
+        snprintf(identity, n, "guest:%s", guest_item->valuestring);
     } else {
         snprintf(identity, n, "guest:default");
     }
@@ -419,7 +439,7 @@ void sessions_handler(cwist_http_request *req, cwist_http_response *res) {
         return;
     }
     const char *limit_str = cwist_query_map_get(req->query_params, "limit");
-    int limit = limit_str ? atoi(limit_str) : 8;
+    int limit = parse_positive_int_or_default(limit_str, 8);
     cJSON *sessions = db_get_recent_sessions(req->db, identity, type, limit);
     cJSON *reply = cJSON_CreateObject();
     cJSON_AddStringToObject(reply, "identity", identity);
@@ -458,13 +478,7 @@ void sessions_log_handler(cwist_http_request *req, cwist_http_response *res) {
     }
 
     char identity[128];
-    if (user_item && cJSON_IsNumber(user_item) && user_item->valueint > 0) {
-        snprintf(identity, sizeof(identity), "user:%d", user_item->valueint);
-    } else if (guest_item && guest_item->valuestring && strlen(guest_item->valuestring) > 0) {
-        snprintf(identity, sizeof(identity), "guest:%s", guest_item->valuestring);
-    } else {
-        snprintf(identity, sizeof(identity), "guest:default");
-    }
+    build_identity_from_json(user_item, guest_item, identity, sizeof(identity));
 
     const char *mode = (mode_item && mode_item->valuestring) ? mode_item->valuestring : "othello";
     const char *difficulty = (difficulty_item && difficulty_item->valuestring) ? difficulty_item->valuestring : "";

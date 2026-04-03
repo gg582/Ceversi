@@ -51,7 +51,11 @@ async function logGameSession(sessionType, mode, difficulty = '', roomId = 0) {
         user_id: currentUser ? currentUser.user_id : 0
     };
     try {
-        await fetch('/sessions/log', { method: 'POST', body: JSON.stringify(payload) });
+        await fetch('/sessions/log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
     } catch (e) {
         console.error(e);
     }
@@ -663,7 +667,7 @@ async function startMultiplayerGame(mode) {
     const roomId = document.getElementById('room-input').value;
     const userId = currentUser ? currentUser.user_id : 0;
     // status feedback
-    const btn = (typeof event !== 'undefined' && event && event.target) ? event.target : null;
+    const btn = (event && event.target) ? event.target : null;
     const originalText = btn ? btn.innerText : "";
     if (btn) {
         btn.innerText = "Connecting...";

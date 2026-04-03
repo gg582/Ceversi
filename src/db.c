@@ -12,6 +12,25 @@
 cwist_db *db_conn = NULL;
 static pthread_mutex_t db_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+static void sql_escape(const char *in, char *out, size_t out_sz) {
+    if (!out || out_sz == 0) return;
+    if (!in) {
+        out[0] = '\0';
+        return;
+    }
+    size_t j = 0;
+    for (size_t i = 0; in[i] != '\0' && j + 1 < out_sz; i++) {
+        if (in[i] == '\'') {
+            if (j + 2 >= out_sz) break;
+            out[j++] = '\'';
+            out[j++] = '\'';
+        } else {
+            out[j++] = in[i];
+        }
+    }
+    out[j] = '\0';
+}
+
 /* Initializes the database schema. Creates 'games' and 'users' tables if they don't exist.
    Also includes rudimentary migrations for adding user-related columns to older DBs. */
 void init_db(cwist_db *db) {
@@ -440,10 +459,18 @@ int db_log_game_session(cwist_db *db, const char *identity, const char *session_
     if (!identity || !session_type || strlen(identity) == 0 || strlen(session_type) == 0) return -1;
     const char *safe_mode = (mode && strlen(mode) > 0) ? mode : "othello";
     const char *safe_difficulty = (difficulty && strlen(difficulty) > 0) ? difficulty : "";
+    char esc_identity[256];
+    char esc_type[64];
+    char esc_mode[64];
+    char esc_difficulty[64];
+    sql_escape(identity, esc_identity, sizeof(esc_identity));
+    sql_escape(session_type, esc_type, sizeof(esc_type));
+    sql_escape(safe_mode, esc_mode, sizeof(esc_mode));
+    sql_escape(safe_difficulty, esc_difficulty, sizeof(esc_difficulty));
     char sql[1024];
     snprintf(sql, sizeof(sql),
              "INSERT INTO game_sessions (identity, session_type, mode, difficulty, room_id, created_at) VALUES ('%s', '%s', '%s', '%s', %d, CURRENT_TIMESTAMP);",
-             identity, session_type, safe_mode, safe_difficulty, room_id);
+             esc_identity, esc_type, esc_mode, esc_difficulty, room_id);
     pthread_mutex_lock(&db_mutex);
     cwist_error_t err = cwist_db_exec(db, sql);
     pthread_mutex_unlock(&db_mutex);
@@ -454,10 +481,14 @@ cJSON *db_get_recent_sessions(cwist_db *db, const char *identity, const char *se
     if (!identity || !session_type || strlen(identity) == 0 || strlen(session_type) == 0) return cJSON_CreateArray();
     if (limit <= 0) limit = 8;
     if (limit > 100) limit = 100;
+    char esc_identity[256];
+    char esc_type[64];
+    sql_escape(identity, esc_identity, sizeof(esc_identity));
+    sql_escape(session_type, esc_type, sizeof(esc_type));
     char sql[1024];
     snprintf(sql, sizeof(sql),
              "SELECT id, session_type, mode, difficulty, room_id, created_at FROM game_sessions WHERE identity='%s' AND session_type='%s' ORDER BY id DESC LIMIT %d;",
-             identity, session_type, limit);
+             esc_identity, esc_type, limit);
     pthread_mutex_lock(&db_mutex);
     cJSON *res = NULL;
     cwist_db_query(db, sql, &res);
