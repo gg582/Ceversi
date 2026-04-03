@@ -13,5 +13,9 @@ void login_handler(cwist_http_request *req, cwist_http_response *res);
 void register_handler(cwist_http_request *req, cwist_http_response *res);
 void rankings_handler(cwist_http_request *req, cwist_http_response *res);
 void user_info_handler(cwist_http_request *req, cwist_http_response *res);
+void rooms_handler(cwist_http_request *req, cwist_http_response *res);
+void betting_enter_handler(cwist_http_request *req, cwist_http_response *res);
+void betting_slots_handler(cwist_http_request *req, cwist_http_response *res);
+void betting_place_handler(cwist_http_request *req, cwist_http_response *res);
 
 #endif

@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <time.h>
 
 cwist_db *db_conn = NULL;
 static pthread_mutex_t db_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -15,14 +16,17 @@ static pthread_mutex_t db_mutex = PTHREAD_MUTEX_INITIALIZER;
    Also includes rudimentary migrations for adding user-related columns to older DBs. */
 void init_db(cwist_db *db) {
     pthread_mutex_lock(&db_mutex);
-    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS games (room_id INTEGER PRIMARY KEY, board TEXT, turn INTEGER, status TEXT, players INTEGER, mode TEXT, user1_id INTEGER DEFAULT 0, user2_id INTEGER DEFAULT 0, last_activity DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS games (room_id INTEGER PRIMARY KEY, board TEXT, turn INTEGER, status TEXT, players INTEGER, mode TEXT, user1_id INTEGER DEFAULT 0, user2_id INTEGER DEFAULT 0, session_type TEXT DEFAULT 'multiplayer', last_activity DATETIME DEFAULT CURRENT_TIMESTAMP);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password_hash TEXT, wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, ties INTEGER DEFAULT 0);");
+    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting_users (identity TEXT PRIMARY KEY, points INTEGER DEFAULT 1000, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting_slots (slot_id INTEGER PRIMARY KEY, difficulty TEXT, odds_win REAL, odds_lose REAL, odds_draw REAL, result TEXT, refresh_mark INTEGER, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
     
     // Migrations for existing DBs
     cwist_db_exec(db, "ALTER TABLE games ADD COLUMN mode TEXT;");
     cwist_db_exec(db, "ALTER TABLE games ADD COLUMN last_activity DATETIME DEFAULT CURRENT_TIMESTAMP;");
     cwist_db_exec(db, "ALTER TABLE games ADD COLUMN user1_id INTEGER DEFAULT 0;");
     cwist_db_exec(db, "ALTER TABLE games ADD COLUMN user2_id INTEGER DEFAULT 0;");
+    cwist_db_exec(db, "ALTER TABLE games ADD COLUMN session_type TEXT DEFAULT 'multiplayer';");
     
     // Trigger: When status becomes 'dropped', delete the row.
     cwist_db_exec(db, "CREATE TRIGGER IF NOT EXISTS drop_game_on_leave AFTER UPDATE ON games WHEN NEW.status = 'dropped' BEGIN DELETE FROM games WHERE room_id = OLD.room_id; END;");
@@ -68,7 +72,7 @@ static void deserialize_board(const char *in, int board[SIZE][SIZE]) {
 
 void get_game_state(cwist_db *db, int room_id, int board[SIZE][SIZE], int *turn, char *status, int *players, char *mode, const char *requested_mode) {
     char sql[256];
-    snprintf(sql, sizeof(sql), "SELECT board, turn, status, players, mode FROM games WHERE room_id = %d;", room_id);
+    snprintf(sql, sizeof(sql), "SELECT board, turn, status, players, mode FROM games WHERE room_id = %d AND session_type='multiplayer';", room_id);
     
     pthread_mutex_lock(&db_mutex);
     cJSON *res = NULL;
@@ -91,7 +95,7 @@ void get_game_state(cwist_db *db, int room_id, int board[SIZE][SIZE], int *turn,
             serialize_board(board, board_str);
             char insert[2048];
             snprintf(insert, sizeof(insert), 
-                "INSERT INTO games (room_id, board, turn, status, players, mode, user1_id, user2_id, last_activity) VALUES (%d, '%s', %d, '%s', %d, '%s', 0, 0, CURRENT_TIMESTAMP);",
+                "INSERT INTO games (room_id, board, turn, status, players, mode, user1_id, user2_id, session_type, last_activity) VALUES (%d, '%s', %d, '%s', %d, '%s', 0, 0, 'multiplayer', CURRENT_TIMESTAMP);",
                 room_id, board_str, *turn, status, *players, mode);
             cwist_db_exec(db, insert);
         }
@@ -132,7 +136,7 @@ void update_game_state(cwist_db *db, int room_id, int board[SIZE][SIZE], int tur
     serialize_board(board, board_str);
     char sql[2048];
     snprintf(sql, sizeof(sql), 
-        "UPDATE games SET board='%s', turn=%d, status='%s', players=%d, mode='%s', last_activity=CURRENT_TIMESTAMP WHERE room_id=%d;",
+        "UPDATE games SET board='%s', turn=%d, status='%s', players=%d, mode='%s', last_activity=CURRENT_TIMESTAMP WHERE room_id=%d AND session_type='multiplayer';",
         board_str, turn, status, players, mode, room_id);
     pthread_mutex_lock(&db_mutex);
     cwist_db_exec(db, sql);
@@ -142,7 +146,7 @@ void update_game_state(cwist_db *db, int room_id, int board[SIZE][SIZE], int tur
 int db_join_game(cwist_db *db, int room_id, const char *requested_mode, int *player_id, char *mode, int user_id) {
     pthread_mutex_lock(&db_mutex);
     char sql[256];
-    snprintf(sql, sizeof(sql), "SELECT board, turn, status, players, mode, user1_id, user2_id FROM games WHERE room_id = %d;", room_id);
+    snprintf(sql, sizeof(sql), "SELECT board, turn, status, players, mode, user1_id, user2_id FROM games WHERE room_id = %d AND session_type='multiplayer';", room_id);
     cJSON *res = NULL;
     cwist_db_query(db, sql, &res);
     
@@ -163,7 +167,7 @@ int db_join_game(cwist_db *db, int room_id, const char *requested_mode, int *pla
         serialize_board(board, board_str);
         char insert[2048];
         snprintf(insert, sizeof(insert), 
-            "INSERT INTO games (room_id, board, turn, status, players, mode, user1_id, user2_id, last_activity) VALUES (%d, '%s', %d, '%s', %d, '%s', %d, 0, CURRENT_TIMESTAMP);",
+            "INSERT INTO games (room_id, board, turn, status, players, mode, user1_id, user2_id, session_type, last_activity) VALUES (%d, '%s', %d, '%s', %d, '%s', %d, 0, 'multiplayer', CURRENT_TIMESTAMP);",
             room_id, board_str, turn, status, players, mode, user_id);
         cwist_db_exec(db, insert);
     } else {
@@ -192,7 +196,7 @@ int db_join_game(cwist_db *db, int room_id, const char *requested_mode, int *pla
             if(m && m->valuestring) strcpy(mode, m->valuestring);
             else strcpy(mode, "othello");
             char touch[128];
-            snprintf(touch, sizeof(touch), "UPDATE games SET last_activity=CURRENT_TIMESTAMP WHERE room_id=%d;", room_id);
+            snprintf(touch, sizeof(touch), "UPDATE games SET last_activity=CURRENT_TIMESTAMP WHERE room_id=%d AND session_type='multiplayer';", room_id);
             cwist_db_exec(db, touch);
             cJSON_Delete(res);
             pthread_mutex_unlock(&db_mutex);
@@ -204,7 +208,7 @@ int db_join_game(cwist_db *db, int room_id, const char *requested_mode, int *pla
             if(m && m->valuestring) strcpy(mode, m->valuestring);
             else strcpy(mode, "othello");
             char touch[128];
-            snprintf(touch, sizeof(touch), "UPDATE games SET last_activity=CURRENT_TIMESTAMP WHERE room_id=%d;", room_id);
+            snprintf(touch, sizeof(touch), "UPDATE games SET last_activity=CURRENT_TIMESTAMP WHERE room_id=%d AND session_type='multiplayer';", room_id);
             cwist_db_exec(db, touch);
             cJSON_Delete(res);
             pthread_mutex_unlock(&db_mutex);
@@ -242,10 +246,10 @@ int db_join_game(cwist_db *db, int room_id, const char *requested_mode, int *pla
         const char *new_status = (new_players == 2) ? "active" : "waiting";
         char update[256];
         if (user_id > 0) {
-            snprintf(update, sizeof(update), "UPDATE games SET players=%d, status='%s', user%d_id=%d, last_activity=CURRENT_TIMESTAMP WHERE room_id=%d;", 
+            snprintf(update, sizeof(update), "UPDATE games SET players=%d, status='%s', user%d_id=%d, last_activity=CURRENT_TIMESTAMP WHERE room_id=%d AND session_type='multiplayer';", 
                     new_players, new_status, assigned_slot, user_id, room_id);
         } else {
-            snprintf(update, sizeof(update), "UPDATE games SET players=%d, status='%s', last_activity=CURRENT_TIMESTAMP WHERE room_id=%d;", 
+            snprintf(update, sizeof(update), "UPDATE games SET players=%d, status='%s', last_activity=CURRENT_TIMESTAMP WHERE room_id=%d AND session_type='multiplayer';", 
                     new_players, new_status, room_id);
         }
         cwist_db_exec(db, update);
@@ -258,7 +262,7 @@ int db_join_game(cwist_db *db, int room_id, const char *requested_mode, int *pla
 void db_leave_game(cwist_db *db, int room_id, int player_id, int user_id) {
     pthread_mutex_lock(&db_mutex);
     char sql[256];
-    snprintf(sql, sizeof(sql), "SELECT players, user1_id, user2_id FROM games WHERE room_id = %d;", room_id);
+    snprintf(sql, sizeof(sql), "SELECT players, user1_id, user2_id FROM games WHERE room_id = %d AND session_type='multiplayer';", room_id);
     cJSON *res = NULL;
     cwist_db_query(db, sql, &res);
     if (cJSON_GetArraySize(res) == 0) {
@@ -305,7 +309,7 @@ void db_leave_game(cwist_db *db, int room_id, int player_id, int user_id) {
 
     if (current_players >= 2 || current_players <= 1) {
         char drop_sql[128];
-        snprintf(drop_sql, sizeof(drop_sql), "UPDATE games SET status = 'dropped' WHERE room_id = %d;", room_id);
+        snprintf(drop_sql, sizeof(drop_sql), "UPDATE games SET status = 'dropped' WHERE room_id = %d AND session_type='multiplayer';", room_id);
         cwist_db_exec(db, drop_sql);
         cJSON_Delete(res);
         pthread_mutex_unlock(&db_mutex);
@@ -321,7 +325,7 @@ void db_leave_game(cwist_db *db, int room_id, int player_id, int user_id) {
     }
     const char *new_status = (new_players == 2) ? "active" : "waiting";
     char update[256];
-    snprintf(update, sizeof(update), "UPDATE games SET players=%d, status='%s', user1_id=%d, user2_id=%d, last_activity=CURRENT_TIMESTAMP WHERE room_id=%d;",
+    snprintf(update, sizeof(update), "UPDATE games SET players=%d, status='%s', user1_id=%d, user2_id=%d, last_activity=CURRENT_TIMESTAMP WHERE room_id=%d AND session_type='multiplayer';",
              new_players, new_status, user1_id, user2_id, room_id);
     cwist_db_exec(db, update);
     cJSON_Delete(res);
@@ -331,7 +335,7 @@ void db_leave_game(cwist_db *db, int room_id, int player_id, int user_id) {
 void db_reset_room(cwist_db *db, int room_id) {
     char sql[256];
     // Trigger the drop via UPDATE status
-    snprintf(sql, sizeof(sql), "UPDATE games SET status = 'dropped' WHERE room_id = %d;", room_id);
+    snprintf(sql, sizeof(sql), "UPDATE games SET status = 'dropped' WHERE room_id = %d AND session_type='multiplayer';", room_id);
     pthread_mutex_lock(&db_mutex);
     cwist_db_exec(db, sql);
     pthread_mutex_unlock(&db_mutex);
@@ -342,7 +346,7 @@ void db_reset_room(cwist_db *db, int room_id) {
 void db_record_result(cwist_db *db, int room_id, int winner_pid) {
     pthread_mutex_lock(&db_mutex);
     char sql[256];
-    snprintf(sql, sizeof(sql), "SELECT user1_id, user2_id FROM games WHERE room_id = %d;", room_id);
+    snprintf(sql, sizeof(sql), "SELECT user1_id, user2_id FROM games WHERE room_id = %d AND session_type='multiplayer';", room_id);
     cJSON *res = NULL;
     cwist_db_query(db, sql, &res);
     if (cJSON_GetArraySize(res) > 0) {
@@ -420,4 +424,177 @@ cJSON *db_get_user_info(cwist_db *db, int user_id) {
     }
     if (res) cJSON_Delete(res);
     return NULL;
+}
+
+cJSON *db_get_multiplayer_rooms(cwist_db *db) {
+    pthread_mutex_lock(&db_mutex);
+    cJSON *res = NULL;
+    cwist_db_query(db, "SELECT room_id, mode, status, players, last_activity FROM games WHERE session_type='multiplayer' ORDER BY room_id ASC LIMIT 50;", &res);
+    pthread_mutex_unlock(&db_mutex);
+    if (!res) return cJSON_CreateArray();
+    return res;
+}
+
+static long current_refresh_mark(void) {
+    time_t now = time(NULL);
+    return (long)(now / 3600);
+}
+
+void db_refresh_betting_slots(cwist_db *db) {
+    pthread_mutex_lock(&db_mutex);
+    long mark = current_refresh_mark();
+    char sql[256];
+    snprintf(sql, sizeof(sql), "SELECT COUNT(*) AS cnt FROM betting_slots WHERE refresh_mark = %ld;", mark);
+    cJSON *res = NULL;
+    cwist_db_query(db, sql, &res);
+    int cnt = 0;
+    if (res && cJSON_GetArraySize(res) > 0) {
+        cJSON *row = cJSON_GetArrayItem(res, 0);
+        cJSON *item = cJSON_GetObjectItem(row, "cnt");
+        if (item) cnt = item->valueint;
+    }
+    if (res) cJSON_Delete(res);
+
+    if (cnt == 10) {
+        pthread_mutex_unlock(&db_mutex);
+        return;
+    }
+
+    cwist_db_exec(db, "DELETE FROM betting_slots;");
+
+    for (int slot = 1; slot <= 10; slot++) {
+        const char *difficulty = (slot <= 4) ? "easy" : (slot <= 7 ? "medium" : "hard");
+        double p_win = 0.34 + ((rand() % 7) - 3) * 0.01;
+        double p_lose = 0.34 + ((rand() % 7) - 3) * 0.01;
+        if (p_win < 0.28) p_win = 0.28;
+        if (p_lose < 0.28) p_lose = 0.28;
+        double p_draw = 1.0 - p_win - p_lose;
+        if (p_draw < 0.20) {
+            p_draw = 0.20;
+            p_win = 0.40;
+            p_lose = 0.40;
+        }
+        double odds_win = 1.0 / p_win;
+        double odds_lose = 1.0 / p_lose;
+        double odds_draw = 1.0 / p_draw;
+
+        int roll = rand() % 1000;
+        const char *result = "draw";
+        if (roll < (int)(p_win * 1000.0)) result = "win";
+        else if (roll < (int)((p_win + p_lose) * 1000.0)) result = "lose";
+
+        char ins[512];
+        snprintf(ins, sizeof(ins),
+            "INSERT INTO betting_slots (slot_id, difficulty, odds_win, odds_lose, odds_draw, result, refresh_mark, updated_at) VALUES (%d, '%s', %.3f, %.3f, %.3f, '%s', %ld, CURRENT_TIMESTAMP);",
+            slot, difficulty, odds_win, odds_lose, odds_draw, result, mark);
+        cwist_db_exec(db, ins);
+    }
+    pthread_mutex_unlock(&db_mutex);
+}
+
+cJSON *db_get_betting_slots(cwist_db *db) {
+    db_refresh_betting_slots(db);
+    pthread_mutex_lock(&db_mutex);
+    cJSON *res = NULL;
+    cwist_db_query(db, "SELECT slot_id, difficulty, odds_win, odds_lose, odds_draw, updated_at FROM betting_slots ORDER BY slot_id ASC;", &res);
+    pthread_mutex_unlock(&db_mutex);
+    if (!res) return cJSON_CreateArray();
+    return res;
+}
+
+int db_get_betting_points(cwist_db *db, const char *identity, int *points) {
+    if (!identity || strlen(identity) == 0) return -1;
+    pthread_mutex_lock(&db_mutex);
+    char sql[512];
+    snprintf(sql, sizeof(sql), "SELECT points FROM betting_users WHERE identity = '%s';", identity);
+    cJSON *res = NULL;
+    cwist_db_query(db, sql, &res);
+    if (res && cJSON_GetArraySize(res) > 0) {
+        cJSON *row = cJSON_GetArrayItem(res, 0);
+        cJSON *p = cJSON_GetObjectItem(row, "points");
+        *points = p ? p->valueint : 1000;
+    } else {
+        char ins[512];
+        snprintf(ins, sizeof(ins), "INSERT INTO betting_users (identity, points, updated_at) VALUES ('%s', 1000, CURRENT_TIMESTAMP);", identity);
+        cwist_db_exec(db, ins);
+        *points = 1000;
+    }
+    if (res) cJSON_Delete(res);
+    pthread_mutex_unlock(&db_mutex);
+    return 0;
+}
+
+int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *outcome, int amount, cJSON **result_json) {
+    if (!identity || !outcome || amount <= 0) return -1;
+    db_refresh_betting_slots(db);
+    pthread_mutex_lock(&db_mutex);
+
+    int points = 0;
+    char q_user[512];
+    snprintf(q_user, sizeof(q_user), "SELECT points FROM betting_users WHERE identity = '%s';", identity);
+    cJSON *user_res = NULL;
+    cwist_db_query(db, q_user, &user_res);
+    if (user_res && cJSON_GetArraySize(user_res) > 0) {
+        cJSON *row = cJSON_GetArrayItem(user_res, 0);
+        points = cJSON_GetObjectItem(row, "points")->valueint;
+    } else {
+        char ins[512];
+        snprintf(ins, sizeof(ins), "INSERT INTO betting_users (identity, points, updated_at) VALUES ('%s', 1000, CURRENT_TIMESTAMP);", identity);
+        cwist_db_exec(db, ins);
+        points = 1000;
+    }
+    if (user_res) cJSON_Delete(user_res);
+
+    char q_slot[256];
+    snprintf(q_slot, sizeof(q_slot), "SELECT odds_win, odds_lose, odds_draw, result FROM betting_slots WHERE slot_id = %d;", slot_id);
+    cJSON *slot_res = NULL;
+    cwist_db_query(db, q_slot, &slot_res);
+    if (!slot_res || cJSON_GetArraySize(slot_res) == 0) {
+        if (slot_res) cJSON_Delete(slot_res);
+        pthread_mutex_unlock(&db_mutex);
+        return -2;
+    }
+
+    if (points - (int)(amount * 1.1f) < -10000) {
+        cJSON_Delete(slot_res);
+        pthread_mutex_unlock(&db_mutex);
+        return -3;
+    }
+
+    cJSON *slot = cJSON_GetArrayItem(slot_res, 0);
+    const char *actual_result = cJSON_GetObjectItem(slot, "result")->valuestring;
+    double odds = 1.0;
+    if (strcmp(outcome, "win") == 0) odds = cJSON_GetObjectItem(slot, "odds_win")->valuedouble;
+    else if (strcmp(outcome, "lose") == 0) odds = cJSON_GetObjectItem(slot, "odds_lose")->valuedouble;
+    else if (strcmp(outcome, "draw") == 0) odds = cJSON_GetObjectItem(slot, "odds_draw")->valuedouble;
+    else {
+        cJSON_Delete(slot_res);
+        pthread_mutex_unlock(&db_mutex);
+        return -4;
+    }
+
+    int delta = 0;
+    int success = strcmp(outcome, actual_result) == 0;
+    if (success) {
+        delta = (int)(amount * odds);
+    } else {
+        delta = -(int)(amount * 1.1f);
+    }
+    points += delta;
+
+    char upd[512];
+    snprintf(upd, sizeof(upd), "UPDATE betting_users SET points = %d, updated_at=CURRENT_TIMESTAMP WHERE identity='%s';", points, identity);
+    cwist_db_exec(db, upd);
+
+    cJSON *result = cJSON_CreateObject();
+    cJSON_AddBoolToObject(result, "success", success);
+    cJSON_AddNumberToObject(result, "delta", delta);
+    cJSON_AddNumberToObject(result, "points", points);
+    cJSON_AddStringToObject(result, "result", actual_result);
+    cJSON_AddNumberToObject(result, "odds", odds);
+    *result_json = result;
+
+    cJSON_Delete(slot_res);
+    pthread_mutex_unlock(&db_mutex);
+    return 0;
 }
