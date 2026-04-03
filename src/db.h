@@ -21,6 +21,8 @@ int db_login_user(cwist_db *db, const char *username, const char *password_hash)
 cJSON *db_get_rankings(cwist_db *db);
 cJSON *db_get_user_info(cwist_db *db, int user_id);
 cJSON *db_get_multiplayer_rooms(cwist_db *db);
+int db_log_game_session(cwist_db *db, const char *identity, const char *session_type, const char *mode, const char *difficulty, int room_id);
+cJSON *db_get_recent_sessions(cwist_db *db, const char *identity, const char *session_type, int limit);
 
 void db_refresh_betting_slots(cwist_db *db);
 cJSON *db_get_betting_slots(cwist_db *db);

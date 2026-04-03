@@ -18,6 +18,7 @@ void init_db(cwist_db *db) {
     pthread_mutex_lock(&db_mutex);
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS games (room_id INTEGER PRIMARY KEY, board TEXT, turn INTEGER, status TEXT, players INTEGER, mode TEXT, user1_id INTEGER DEFAULT 0, user2_id INTEGER DEFAULT 0, session_type TEXT DEFAULT 'multiplayer', last_activity DATETIME DEFAULT CURRENT_TIMESTAMP);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password_hash TEXT, wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, ties INTEGER DEFAULT 0);");
+    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS game_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT NOT NULL, session_type TEXT NOT NULL, mode TEXT, difficulty TEXT, room_id INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting_users (identity TEXT PRIMARY KEY, points INTEGER DEFAULT 1000, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting_slots (slot_id INTEGER PRIMARY KEY, difficulty TEXT, odds_win REAL, odds_lose REAL, odds_draw REAL, result TEXT, refresh_mark INTEGER, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
     
@@ -430,6 +431,36 @@ cJSON *db_get_multiplayer_rooms(cwist_db *db) {
     pthread_mutex_lock(&db_mutex);
     cJSON *res = NULL;
     cwist_db_query(db, "SELECT room_id, mode, status, players, last_activity FROM games WHERE session_type='multiplayer' ORDER BY room_id ASC LIMIT 50;", &res);
+    pthread_mutex_unlock(&db_mutex);
+    if (!res) return cJSON_CreateArray();
+    return res;
+}
+
+int db_log_game_session(cwist_db *db, const char *identity, const char *session_type, const char *mode, const char *difficulty, int room_id) {
+    if (!identity || !session_type || strlen(identity) == 0 || strlen(session_type) == 0) return -1;
+    const char *safe_mode = (mode && strlen(mode) > 0) ? mode : "othello";
+    const char *safe_difficulty = (difficulty && strlen(difficulty) > 0) ? difficulty : "";
+    char sql[1024];
+    snprintf(sql, sizeof(sql),
+             "INSERT INTO game_sessions (identity, session_type, mode, difficulty, room_id, created_at) VALUES ('%s', '%s', '%s', '%s', %d, CURRENT_TIMESTAMP);",
+             identity, session_type, safe_mode, safe_difficulty, room_id);
+    pthread_mutex_lock(&db_mutex);
+    cwist_error_t err = cwist_db_exec(db, sql);
+    pthread_mutex_unlock(&db_mutex);
+    return err.error.err_i16;
+}
+
+cJSON *db_get_recent_sessions(cwist_db *db, const char *identity, const char *session_type, int limit) {
+    if (!identity || !session_type || strlen(identity) == 0 || strlen(session_type) == 0) return cJSON_CreateArray();
+    if (limit <= 0) limit = 8;
+    if (limit > 100) limit = 100;
+    char sql[1024];
+    snprintf(sql, sizeof(sql),
+             "SELECT id, session_type, mode, difficulty, room_id, created_at FROM game_sessions WHERE identity='%s' AND session_type='%s' ORDER BY id DESC LIMIT %d;",
+             identity, session_type, limit);
+    pthread_mutex_lock(&db_mutex);
+    cJSON *res = NULL;
+    cwist_db_query(db, sql, &res);
     pthread_mutex_unlock(&db_mutex);
     if (!res) return cJSON_CreateArray();
     return res;
