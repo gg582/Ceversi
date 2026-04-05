@@ -784,7 +784,7 @@ async function loadBettingZone() {
         if (slots.length === 0) {
             const empty = document.createElement('div');
             empty.style.opacity = '0.8';
-            empty.innerText = 'No betting slots right now. Please refresh.';
+            empty.innerText = 'No betting slots right now.';
             container.appendChild(empty);
             return;
         }
@@ -821,7 +821,7 @@ async function loadBettingZone() {
         if (!container.children.length) {
             const invalid = document.createElement('div');
             invalid.style.opacity = '0.8';
-            invalid.innerText = 'Betting slots are temporarily unavailable. Please refresh.';
+            invalid.innerText = 'Betting slots are temporarily unavailable.';
             container.appendChild(invalid);
         }
     } catch (e) {

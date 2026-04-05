@@ -116,16 +116,15 @@
             <div id="betting-zone" class="view-container hidden">
                 <div class="hero-section">
                     <h2>Betting Zone</h2>
-                    <p>Virtual money starts at 1000 points, minimum up to -10000 points.</p>
+                    <p>Virtual money starts at 1000 points. Auto reset only when points reach -10000.</p>
                 </div>
                 <div class="card">
                     <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;">
                         <div>
                             <strong>My Points:</strong> <span id="betting-points">-</span>
                         </div>
-                        <button class="btn btn-outline" onclick="loadBettingZone()">Refresh Slots</button>
                     </div>
-                    <div style="margin-top:1rem;font-size:0.85rem;color:var(--text-secondary);">Slots refresh every 1 hour. 10 slots total (4 Easy / 3 Medium / 3 Hard), equal machine stamina.</div>
+                    <div style="margin-top:1rem;font-size:0.85rem;color:var(--text-secondary);">10 slots total (4 Easy / 3 Medium / 3 Hard). Slots stay fixed until server reset.</div>
                     <div id="betting-slots" style="margin-top:1rem; display:grid; gap:0.8rem;"></div>
                 </div>
                 <div style="margin-top:1rem; text-align:center;">
