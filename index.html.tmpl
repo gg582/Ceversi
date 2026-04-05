@@ -126,6 +126,28 @@
                     </div>
                     <div style="margin-top:1rem;font-size:0.85rem;color:var(--text-secondary);">10 slots total (4 Easy / 3 Medium / 3 Hard). Slots stay fixed until server reset.</div>
                     <div id="betting-slots" style="margin-top:1rem; display:grid; gap:0.8rem;"></div>
+                    <div style="margin-top:1rem;">
+                        <h3 style="margin-bottom:0.6rem;">Betting Point Rank</h3>
+                        <table style="width:100%; text-align:left; border-collapse:collapse;">
+                            <thead>
+                                <tr style="border-bottom:1px solid var(--border-color);">
+                                    <th style="padding:8px;">Rank</th>
+                                    <th style="padding:8px;">Identity</th>
+                                    <th style="padding:8px;">Points</th>
+                                </tr>
+                            </thead>
+                            <tbody id="betting-rankings-body"></tbody>
+                        </table>
+                    </div>
+                    <div style="margin-top:1rem;">
+                        <h3 style="margin-bottom:0.6rem;">Multiplayer Prediction Bet</h3>
+                        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+                            <input type="number" id="mp-bet-room" min="1" placeholder="Room" style="max-width:90px;">
+                            <input type="number" id="mp-bet-amount" min="1" value="100" style="max-width:100px;">
+                            <button class="btn btn-primary btn-sm" onclick="placeMultiplayerBet(1)">Bet P1</button>
+                            <button class="btn btn-outline btn-sm" onclick="placeMultiplayerBet(2)">Bet P2</button>
+                        </div>
+                    </div>
                 </div>
                 <div style="margin-top:1rem; text-align:center;">
                     <button class="btn btn-outline" onclick="showView('lobby')">Back</button>

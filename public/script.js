@@ -777,8 +777,13 @@ async function loadBettingZone() {
         const slotsRes = await fetch('/betting/slots');
         if (!slotsRes.ok) throw new Error('betting-slots-failed');
         const slotsData = await slotsRes.json();
+        const rankingRes = await fetch('/betting/rankings');
+        if (!rankingRes.ok) throw new Error('betting-rankings-failed');
+        const rankingData = await rankingRes.json();
         const container = document.getElementById('betting-slots');
+        const rankBody = document.getElementById('betting-rankings-body');
         container.innerHTML = '';
+        rankBody.innerHTML = '';
 
         const slots = Array.isArray(slotsData.slots) ? slotsData.slots : [];
         if (slots.length === 0) {
@@ -824,6 +829,21 @@ async function loadBettingZone() {
             invalid.innerText = 'Betting slots are temporarily unavailable.';
             container.appendChild(invalid);
         }
+
+        const rows = Array.isArray(rankingData.rankings) ? rankingData.rankings : [];
+        if (!rows.length) {
+            rankBody.innerHTML = '<tr><td colspan="3" style="padding:8px;">No data</td></tr>';
+        } else {
+            rows.forEach((row, idx) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="padding:8px;">#${idx + 1}</td>
+                    <td style="padding:8px;">${row.identity}</td>
+                    <td style="padding:8px;">${row.points}</td>
+                `;
+                rankBody.appendChild(tr);
+            });
+        }
     } catch (e) {
         console.error('loadBettingZone failed:', e);
         alert('Failed to load betting zone');
@@ -855,9 +875,40 @@ async function placeBet(slotId, outcome) {
         return;
     }
 
-    const reviveText = data.revived ? ' | revived to 1000' : '';
-    alert(`${data.success ? 'Success' : 'Fail'} | result=${data.result} | delta=${data.delta} | points=${data.points}${reviveText}`);
+    alert(`${data.success ? 'Success' : 'Fail'} | result=${data.result} | delta=${data.delta} | points=${data.points}`);
     document.getElementById('betting-points').innerText = data.points;
+    loadBettingZone();
+}
+
+async function placeMultiplayerBet(targetPlayer) {
+    const roomInput = document.getElementById('mp-bet-room');
+    const amountInput = document.getElementById('mp-bet-amount');
+    const roomId = parseInt(roomInput.value || document.getElementById('room-input').value || '0', 10);
+    const amount = parseInt(amountInput.value || '0', 10);
+    if (roomId <= 0 || amount <= 0) {
+        alert('Enter valid room and amount');
+        return;
+    }
+
+    const payload = {
+        room_id: roomId,
+        target_player: targetPlayer,
+        amount,
+        guest_id: bettingGuestId,
+        user_id: currentUser ? currentUser.user_id : 0
+    };
+    const res = await fetch('/betting/multiplayer/place', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+        alert(data.error || 'Multiplayer bet failed');
+        return;
+    }
+    document.getElementById('betting-points').innerText = data.points;
+    alert(`Room ${data.room_id} | P${data.target_player} | amount=${data.amount} | points=${data.points}`);
+    loadBettingZone();
 }
 
 // --- Theme Management ---

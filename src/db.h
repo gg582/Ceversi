@@ -28,5 +28,8 @@ void db_refresh_betting_slots(cwist_db *db);
 cJSON *db_get_betting_slots(cwist_db *db);
 int db_get_betting_points(cwist_db *db, const char *identity, int *points);
 int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *outcome, int amount, cJSON **result_json);
+cJSON *db_get_betting_rankings(cwist_db *db);
+int db_place_multiplayer_bet(cwist_db *db, const char *identity, int room_id, int target_player, int amount, cJSON **result_json);
+int db_settle_multiplayer_bets(cwist_db *db, int room_id, int winner_player, cJSON **settle_json);
 
 #endif

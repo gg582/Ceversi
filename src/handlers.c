@@ -261,6 +261,7 @@ void move_handler(cwist_http_request *req, cwist_http_response *res) {
                 int winner = (b_cnt > w_cnt) ? 1 : (w_cnt > b_cnt ? 2 : 0);
                 // Record result for user rankings
                 db_record_result(req->db, room_id, winner);
+                db_settle_multiplayer_bets(req->db, room_id, winner, NULL);
             }
         }
 
@@ -546,6 +547,17 @@ void betting_slots_handler(cwist_http_request *req, cwist_http_response *res) {
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
 }
 
+void betting_rankings_handler(cwist_http_request *req, cwist_http_response *res) {
+    cJSON *ranks = db_get_betting_rankings(req->db);
+    cJSON *reply = cJSON_CreateObject();
+    cJSON_AddItemToObject(reply, "rankings", ranks);
+    char *str = cJSON_PrintUnformatted(reply);
+    cwist_sstring_assign(res->body, str);
+    cev_mem_free(str);
+    cJSON_Delete(reply);
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+}
+
 void betting_place_handler(cwist_http_request *req, cwist_http_response *res) {
     cJSON *json = cJSON_Parse(req->body->data);
     if (!json) {
@@ -580,6 +592,49 @@ void betting_place_handler(cwist_http_request *req, cwist_http_response *res) {
         cJSON *err = cJSON_CreateObject();
         if (rc == -3) cJSON_AddStringToObject(err, "error", "Bet amount exceeds current points");
         else cJSON_AddStringToObject(err, "error", "Invalid bet request");
+        char *err_str = cJSON_PrintUnformatted(err);
+        cwist_sstring_assign(res->body, err_str);
+        cev_mem_free(err_str);
+        cJSON_Delete(err);
+        res->status_code = CWIST_HTTP_BAD_REQUEST;
+        cJSON_Delete(json);
+        return;
+    }
+
+    char *str = cJSON_PrintUnformatted(result);
+    cwist_sstring_assign(res->body, str);
+    cev_mem_free(str);
+    cJSON_Delete(result);
+    cJSON_Delete(json);
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+}
+
+void betting_multiplayer_place_handler(cwist_http_request *req, cwist_http_response *res) {
+    cJSON *json = cJSON_Parse(req->body->data);
+    if (!json) {
+        res->status_code = CWIST_HTTP_BAD_REQUEST;
+        return;
+    }
+
+    cJSON *room_item = cJSON_GetObjectItem(json, "room_id");
+    cJSON *target_item = cJSON_GetObjectItem(json, "target_player");
+    cJSON *amount_item = cJSON_GetObjectItem(json, "amount");
+    cJSON *guest_item = cJSON_GetObjectItem(json, "guest_id");
+    cJSON *user_item = cJSON_GetObjectItem(json, "user_id");
+    if (!room_item || !target_item || !amount_item || !cJSON_IsNumber(room_item) || !cJSON_IsNumber(target_item) || !cJSON_IsNumber(amount_item)) {
+        res->status_code = CWIST_HTTP_BAD_REQUEST;
+        cJSON_Delete(json);
+        return;
+    }
+
+    char identity[128];
+    build_identity_from_json(user_item, guest_item, identity, sizeof(identity));
+
+    cJSON *result = NULL;
+    int rc = db_place_multiplayer_bet(req->db, identity, room_item->valueint, target_item->valueint, amount_item->valueint, &result);
+    if (rc != 0) {
+        cJSON *err = cJSON_CreateObject();
+        cJSON_AddStringToObject(err, "error", "Invalid multiplayer bet request");
         char *err_str = cJSON_PrintUnformatted(err);
         cwist_sstring_assign(res->body, err_str);
         cev_mem_free(err_str);
