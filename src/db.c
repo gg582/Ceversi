@@ -11,6 +11,8 @@
 
 cwist_db *db_conn = NULL;
 static pthread_mutex_t db_mutex = PTHREAD_MUTEX_INITIALIZER;
+static const int BETTING_START_POINTS = 1000;
+static const int BETTING_MIN_POINTS = 0;
 
 static void sql_escape(const char *in, char *out, size_t out_sz) {
     if (!out || out_sz == 0) return;
@@ -566,20 +568,28 @@ cJSON *db_get_betting_slots(cwist_db *db) {
 
 int db_get_betting_points(cwist_db *db, const char *identity, int *points) {
     if (!identity || strlen(identity) == 0) return -1;
+    char esc_identity[256];
+    sql_escape(identity, esc_identity, sizeof(esc_identity));
     pthread_mutex_lock(&db_mutex);
     char sql[512];
-    snprintf(sql, sizeof(sql), "SELECT points FROM betting_users WHERE identity = '%s';", identity);
+    snprintf(sql, sizeof(sql), "SELECT points FROM betting_users WHERE identity = '%s';", esc_identity);
     cJSON *res = NULL;
     cwist_db_query(db, sql, &res);
     if (res && cJSON_GetArraySize(res) > 0) {
         cJSON *row = cJSON_GetArrayItem(res, 0);
         cJSON *p = cJSON_GetObjectItem(row, "points");
-        *points = p ? p->valueint : 1000;
+        *points = p ? p->valueint : BETTING_START_POINTS;
+        if (*points <= BETTING_MIN_POINTS) {
+            *points = BETTING_START_POINTS;
+            char upd[512];
+            snprintf(upd, sizeof(upd), "UPDATE betting_users SET points = %d, updated_at=CURRENT_TIMESTAMP WHERE identity='%s';", *points, esc_identity);
+            cwist_db_exec(db, upd);
+        }
     } else {
         char ins[512];
-        snprintf(ins, sizeof(ins), "INSERT INTO betting_users (identity, points, updated_at) VALUES ('%s', 1000, CURRENT_TIMESTAMP);", identity);
+        snprintf(ins, sizeof(ins), "INSERT INTO betting_users (identity, points, updated_at) VALUES ('%s', %d, CURRENT_TIMESTAMP);", esc_identity, BETTING_START_POINTS);
         cwist_db_exec(db, ins);
-        *points = 1000;
+        *points = BETTING_START_POINTS;
     }
     if (res) cJSON_Delete(res);
     pthread_mutex_unlock(&db_mutex);
@@ -589,11 +599,13 @@ int db_get_betting_points(cwist_db *db, const char *identity, int *points) {
 int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *outcome, int amount, cJSON **result_json) {
     if (!identity || !outcome || amount <= 0) return -1;
     db_refresh_betting_slots(db);
+    char esc_identity[256];
+    sql_escape(identity, esc_identity, sizeof(esc_identity));
     pthread_mutex_lock(&db_mutex);
 
     int points = 0;
     char q_user[512];
-    snprintf(q_user, sizeof(q_user), "SELECT points FROM betting_users WHERE identity = '%s';", identity);
+    snprintf(q_user, sizeof(q_user), "SELECT points FROM betting_users WHERE identity = '%s';", esc_identity);
     cJSON *user_res = NULL;
     cwist_db_query(db, q_user, &user_res);
     if (user_res && cJSON_GetArraySize(user_res) > 0) {
@@ -601,11 +613,19 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
         points = cJSON_GetObjectItem(row, "points")->valueint;
     } else {
         char ins[512];
-        snprintf(ins, sizeof(ins), "INSERT INTO betting_users (identity, points, updated_at) VALUES ('%s', 1000, CURRENT_TIMESTAMP);", identity);
+        snprintf(ins, sizeof(ins), "INSERT INTO betting_users (identity, points, updated_at) VALUES ('%s', %d, CURRENT_TIMESTAMP);", esc_identity, BETTING_START_POINTS);
         cwist_db_exec(db, ins);
-        points = 1000;
+        points = BETTING_START_POINTS;
     }
     if (user_res) cJSON_Delete(user_res);
+
+    if (points <= BETTING_MIN_POINTS) {
+        points = BETTING_START_POINTS;
+    }
+    if (amount > points) {
+        pthread_mutex_unlock(&db_mutex);
+        return -3;
+    }
 
     char q_slot[256];
     snprintf(q_slot, sizeof(q_slot), "SELECT odds_win, odds_lose, odds_draw, result FROM betting_slots WHERE slot_id = %d;", slot_id);
@@ -638,13 +658,13 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
     }
     points += delta;
     int revived = 0;
-    if (points <= -10000) {
-        points = 1000;
+    if (points <= BETTING_MIN_POINTS) {
+        points = BETTING_START_POINTS;
         revived = 1;
     }
 
     char upd[512];
-    snprintf(upd, sizeof(upd), "UPDATE betting_users SET points = %d, updated_at=CURRENT_TIMESTAMP WHERE identity='%s';", points, identity);
+    snprintf(upd, sizeof(upd), "UPDATE betting_users SET points = %d, updated_at=CURRENT_TIMESTAMP WHERE identity='%s';", points, esc_identity);
     cwist_db_exec(db, upd);
 
     cJSON *result = cJSON_CreateObject();

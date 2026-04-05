@@ -579,7 +579,7 @@ void betting_place_handler(cwist_http_request *req, cwist_http_response *res) {
     int rc = db_apply_bet(req->db, identity, slot_item->valueint, outcome_item->valuestring, amount_item->valueint, &result);
     if (rc != 0) {
         cJSON *err = cJSON_CreateObject();
-        if (rc == -3) cJSON_AddStringToObject(err, "error", "Point limit exceeded (-10000)");
+        if (rc == -3) cJSON_AddStringToObject(err, "error", "Bet amount exceeds current points");
         else cJSON_AddStringToObject(err, "error", "Invalid bet request");
         char *err_str = cJSON_PrintUnformatted(err);
         cwist_sstring_assign(res->body, err_str);
