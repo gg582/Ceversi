@@ -518,7 +518,7 @@ static void build_identity(cwist_http_request *req, char *identity, size_t n) {
 void betting_enter_handler(cwist_http_request *req, cwist_http_response *res) {
     char identity[128];
     build_identity(req, identity, sizeof(identity));
-    int points = 1000;
+    int points = 5000;
     if (db_get_betting_points(req->db, identity, &points) != 0) {
         res->status_code = CWIST_HTTP_BAD_REQUEST;
         return;

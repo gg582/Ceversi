@@ -11,8 +11,8 @@
 
 cwist_db *db_conn = NULL;
 static pthread_mutex_t db_mutex = PTHREAD_MUTEX_INITIALIZER;
-static const int BETTING_START_POINTS = 1000;
-static const int BETTING_MIN_POINTS = -1000;
+static const int BETTING_START_POINTS = 5000;
+static const int BETTING_ZERO_BASE_POINTS = 1000;
 
 static void sql_escape(const char *in, char *out, size_t out_sz) {
     if (!out || out_sz == 0) return;
@@ -40,7 +40,7 @@ void init_db(cwist_db *db) {
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS games (room_id INTEGER PRIMARY KEY, board TEXT, turn INTEGER, status TEXT, players INTEGER, mode TEXT, user1_id INTEGER DEFAULT 0, user2_id INTEGER DEFAULT 0, session_type TEXT DEFAULT 'multiplayer', last_activity DATETIME DEFAULT CURRENT_TIMESTAMP);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password_hash TEXT, wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, ties INTEGER DEFAULT 0);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS game_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT NOT NULL, session_type TEXT NOT NULL, mode TEXT, difficulty TEXT, room_id INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
-    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting_users (identity TEXT PRIMARY KEY, points INTEGER DEFAULT 1000, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting_users (identity TEXT PRIMARY KEY, points INTEGER DEFAULT 5000, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting_slots (slot_id INTEGER PRIMARY KEY, difficulty TEXT, odds_win REAL, odds_lose REAL, odds_draw REAL, result TEXT, refresh_mark INTEGER, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
     
     // Migrations for existing DBs
@@ -630,6 +630,13 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
         return -4;
     }
 
+    int effective_points = (points == 0) ? BETTING_ZERO_BASE_POINTS : points;
+    if (amount > effective_points) {
+        cJSON_Delete(slot_res);
+        pthread_mutex_unlock(&db_mutex);
+        return -3;
+    }
+
     int delta = 0;
     int success = strcmp(outcome, actual_result) == 0;
     if (success) {
@@ -637,13 +644,8 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
     } else {
         delta = -(int)(amount * 1.1f);
     }
-    int base_points = points < 0 ? BETTING_START_POINTS : points;
-    points = base_points + delta;
+    points = effective_points + delta;
     int revived = 0;
-    if (points <= BETTING_MIN_POINTS) {
-        points = BETTING_START_POINTS;
-        revived = 1;
-    }
 
     char upd[512];
     snprintf(upd, sizeof(upd), "UPDATE betting_users SET points = %d, updated_at=CURRENT_TIMESTAMP WHERE identity='%s';", points, esc_identity);
