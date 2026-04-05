@@ -538,7 +538,6 @@ void betting_slots_handler(cwist_http_request *req, cwist_http_response *res) {
     cJSON *slots = db_get_betting_slots(req->db);
     cJSON *reply = cJSON_CreateObject();
     cJSON_AddItemToObject(reply, "slots", slots);
-    cJSON_AddNumberToObject(reply, "refresh_interval_sec", 3600);
 
     char *str = cJSON_PrintUnformatted(reply);
     cwist_sstring_assign(res->body, str);
