@@ -12,7 +12,7 @@
 cwist_db *db_conn = NULL;
 static pthread_mutex_t db_mutex = PTHREAD_MUTEX_INITIALIZER;
 static const int BETTING_START_POINTS = 1000;
-static const int BETTING_MIN_POINTS = -10000;
+static const int BETTING_MIN_POINTS = -1000;
 
 static void sql_escape(const char *in, char *out, size_t out_sz) {
     if (!out || out_sz == 0) return;
@@ -607,12 +607,6 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
         points = BETTING_START_POINTS;
     }
     if (user_res) cJSON_Delete(user_res);
-
-    int spendable_points = points < 0 ? BETTING_START_POINTS : points;
-    if (amount > spendable_points) {
-        pthread_mutex_unlock(&db_mutex);
-        return -3;
-    }
 
     char q_slot[256];
     snprintf(q_slot, sizeof(q_slot), "SELECT odds_win, odds_lose, odds_draw, result FROM betting_slots WHERE slot_id = %d;", slot_id);
