@@ -89,6 +89,7 @@ int main(int argc, char **argv) {
     cwist_app_get(app, "/betting/rankings", betting_rankings_handler);
     cwist_app_post(app, "/betting/place", betting_place_handler);
     cwist_app_post(app, "/betting/multiplayer/place", betting_multiplayer_place_handler);
+    cwist_app_get(app, "/betting/multiplayer/history", betting_multiplayer_history_handler);
     
     // Static files fallback
     cwist_app_static(app, "/static", "./public"); 

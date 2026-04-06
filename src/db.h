@@ -31,5 +31,6 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
 cJSON *db_get_betting_rankings(cwist_db *db);
 int db_place_multiplayer_bet(cwist_db *db, const char *identity, int room_id, int target_player, int amount, cJSON **result_json);
 int db_settle_multiplayer_bets(cwist_db *db, int room_id, int winner_player, cJSON **settle_json);
+cJSON *db_get_multiplayer_bet_history(cwist_db *db, const char *identity, int room_id);
 
 #endif

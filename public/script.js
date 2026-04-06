@@ -35,6 +35,28 @@ if (!sessionGuestId) {
     sessionGuestId = `s${Date.now()}${Math.floor(Math.random()*10000)}`;
     localStorage.setItem('session_guest_id', sessionGuestId);
 }
+let bettingWasm = null;
+
+async function initBettingWasm() {
+    if (bettingWasm) return bettingWasm;
+    try {
+        const res = await fetch('/static/betting_logic.wasm');
+        if (!res.ok) throw new Error('wasm fetch failed');
+        const { instance } = await WebAssembly.instantiate(await res.arrayBuffer());
+        bettingWasm = instance.exports;
+    } catch (e) {
+        console.warn('WASM unavailable, fallback to JS:', e);
+        bettingWasm = {
+            wasm_betting_single_delta: (amount, oddsX1000, success) => {
+                const odds = oddsX1000 / 1000;
+                return success ? Math.floor(amount * (odds - 1.0)) : -amount;
+            },
+            wasm_betting_can_wager: (currentPoints, amount) => (currentPoints - amount >= -1000 ? 1 : 0),
+            wasm_betting_project_points: (currentPoints, delta) => Math.max(-1000, currentPoints + delta)
+        };
+    }
+    return bettingWasm;
+}
 
 function sessionIdentityQuery() {
     const userId = currentUser ? currentUser.user_id : 0;
@@ -259,6 +281,7 @@ async function showRankings() {
 document.addEventListener('DOMContentLoaded', () => {
     updateAuthUI();
     refreshSessionLists();
+    initBettingWasm();
     const bettingNav = document.getElementById('nav-betting');
     if (bettingNav) {
         bettingNav.addEventListener('click', (e) => {
@@ -266,6 +289,10 @@ document.addEventListener('DOMContentLoaded', () => {
             showBettingZone();
         });
     }
+    const mpAmount = document.getElementById('mp-bet-amount');
+    const mpRoom = document.getElementById('mp-bet-room');
+    if (mpAmount) mpAmount.addEventListener('input', updateMultiplayerPreview);
+    if (mpRoom) mpRoom.addEventListener('input', loadMultiplayerBetHistory);
 });
 
 const directions = [
@@ -768,11 +795,13 @@ function showBettingZone() {
 
 async function loadBettingZone() {
     try {
+        await initBettingWasm();
         const userId = currentUser ? currentUser.user_id : 0;
         const enterRes = await fetch(`/betting/enter?user_id=${userId}&guest_id=${bettingGuestId}`);
         if (!enterRes.ok) throw new Error('betting-enter-failed');
         const enterData = await enterRes.json();
-        document.getElementById('betting-points').innerText = enterData.points;
+        const currentPoints = Number(enterData.points);
+        document.getElementById('betting-points').innerText = currentPoints;
 
         const slotsRes = await fetch('/betting/slots');
         if (!slotsRes.ok) throw new Error('betting-slots-failed');
@@ -819,8 +848,26 @@ async function loadBettingZone() {
                     <button class="btn btn-outline btn-sm" onclick="placeBet(${slotId}, 'lose')">Lose</button>
                     <button class="btn btn-outline btn-sm" onclick="placeBet(${slotId}, 'draw')">Draw</button>
                 </div>
+                <div id="bet-preview-${slotId}" style="margin-top:0.5rem;font-size:0.82rem;color:var(--text-secondary);"></div>
             `;
             container.appendChild(row);
+            const amountInput = row.querySelector(`#bet-amount-${slotId}`);
+            const preview = row.querySelector(`#bet-preview-${slotId}`);
+            const updatePreview = () => {
+                const amount = Number(amountInput.value || 0);
+                if (amount <= 0) {
+                    preview.innerText = '금액 입력 필요';
+                    return;
+                }
+                const deltaWin = bettingWasm.wasm_betting_single_delta(amount, Math.round(oddsWin * 1000), 1);
+                const projectedWin = bettingWasm.wasm_betting_project_points(currentPoints, deltaWin);
+                const canBet = bettingWasm.wasm_betting_can_wager(currentPoints, amount) === 1;
+                preview.innerText = canBet
+                    ? `Win 적중시 Δ${deltaWin >= 0 ? '+' : ''}${deltaWin}, 예상 포인트 ${projectedWin}`
+                    : '현재 포인트 기준으로 이 금액은 베팅 불가';
+            };
+            amountInput.addEventListener('input', updatePreview);
+            updatePreview();
         });
 
         if (!container.children.length) {
@@ -844,6 +891,8 @@ async function loadBettingZone() {
                 rankBody.appendChild(tr);
             });
         }
+        await loadMultiplayerBetHistory();
+        updateMultiplayerPreview();
     } catch (e) {
         console.error('loadBettingZone failed:', e);
         alert('Failed to load betting zone');
@@ -909,6 +958,47 @@ async function placeMultiplayerBet(targetPlayer) {
     document.getElementById('betting-points').innerText = data.points;
     alert(`Room ${data.room_id} | P${data.target_player} | amount=${data.amount} | points=${data.points}`);
     loadBettingZone();
+}
+
+function updateMultiplayerPreview() {
+    const points = Number(document.getElementById('betting-points').innerText || '0');
+    const amount = Number(document.getElementById('mp-bet-amount')?.value || '0');
+    const previewEl = document.getElementById('mp-bet-preview');
+    if (!previewEl) return;
+    if (amount <= 0) {
+        previewEl.innerText = '베팅 금액을 입력하세요.';
+        return;
+    }
+    const canBet = bettingWasm && bettingWasm.wasm_betting_can_wager(points, amount) === 1;
+    const nextPoints = bettingWasm ? bettingWasm.wasm_betting_project_points(points, -amount) : (points - amount);
+    previewEl.innerText = canBet
+        ? `베팅 직후 예상 포인트: ${nextPoints} (정산 후 변동)`
+        : '이 금액은 허용 최소 포인트(-1000)를 초과합니다.';
+}
+
+async function loadMultiplayerBetHistory() {
+    const roomId = parseInt(document.getElementById('mp-bet-room')?.value || '0', 10);
+    const userId = currentUser ? currentUser.user_id : 0;
+    const q = `/betting/multiplayer/history?user_id=${userId}&guest_id=${encodeURIComponent(bettingGuestId)}${roomId > 0 ? `&room_id=${roomId}` : ''}`;
+    const res = await fetch(q);
+    const data = await res.json();
+    const body = document.getElementById('mp-bet-history-body');
+    body.innerHTML = '';
+    const rows = Array.isArray(data.bets) ? data.bets : [];
+    if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="4" style="padding:6px;">No bets</td></tr>';
+        return;
+    }
+    rows.forEach((bet) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td style="padding:6px;">${bet.room_id}</td>
+            <td style="padding:6px;">P${bet.target_player}</td>
+            <td style="padding:6px;">${bet.amount}</td>
+            <td style="padding:6px;">${bet.settled ? 'Yes' : 'No'}</td>
+        `;
+        body.appendChild(tr);
+    });
 }
 
 // --- Theme Management ---

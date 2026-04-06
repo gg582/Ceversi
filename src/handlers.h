@@ -21,5 +21,6 @@ void betting_slots_handler(cwist_http_request *req, cwist_http_response *res);
 void betting_place_handler(cwist_http_request *req, cwist_http_response *res);
 void betting_rankings_handler(cwist_http_request *req, cwist_http_response *res);
 void betting_multiplayer_place_handler(cwist_http_request *req, cwist_http_response *res);
+void betting_multiplayer_history_handler(cwist_http_request *req, cwist_http_response *res);
 
 #endif
