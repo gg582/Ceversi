@@ -37,6 +37,15 @@ static void sql_escape(const char *in, char *out, size_t out_sz) {
     out[j] = '\0';
 }
 
+static int json_to_int(cJSON *obj, const char *key, int fallback) {
+    if (!obj || !key) return fallback;
+    cJSON *item = cJSON_GetObjectItem(obj, key);
+    if (!item) return fallback;
+    if (item->valuestring) return atoi(item->valuestring);
+    if (cJSON_IsNumber(item)) return item->valueint;
+    return fallback;
+}
+
 /* Initializes the database schema. Creates 'games' and 'users' tables if they don't exist.
    Also includes rudimentary migrations for adding user-related columns to older DBs. */
 void init_db(cwist_db *db) {
@@ -574,8 +583,7 @@ int db_get_betting_points(cwist_db *db, const char *identity, int *points) {
     cwist_db_query(db, sql, &res);
     if (res && cJSON_GetArraySize(res) > 0) {
         cJSON *row = cJSON_GetArrayItem(res, 0);
-        cJSON *p = cJSON_GetObjectItem(row, "points");
-        *points = p ? p->valueint : BETTING_START_POINTS;
+        *points = json_to_int(row, "points", BETTING_START_POINTS);
         int normalized = betting_reset_if_needed(*points);
         if (normalized != *points) {
             char upd[512];
@@ -608,7 +616,7 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
     cwist_db_query(db, q_user, &user_res);
     if (user_res && cJSON_GetArraySize(user_res) > 0) {
         cJSON *row = cJSON_GetArrayItem(user_res, 0);
-        points = cJSON_GetObjectItem(row, "points")->valueint;
+        points = json_to_int(row, "points", BETTING_START_POINTS);
     } else {
         char ins[512];
         snprintf(ins, sizeof(ins), "INSERT INTO betting_users (identity, points, updated_at) VALUES ('%s', %d, CURRENT_TIMESTAMP);", esc_identity, BETTING_START_POINTS);
@@ -690,8 +698,7 @@ int db_place_multiplayer_bet(cwist_db *db, const char *identity, int room_id, in
     cwist_db_query(db, q_user, &user_res);
     if (user_res && cJSON_GetArraySize(user_res) > 0) {
         cJSON *row = cJSON_GetArrayItem(user_res, 0);
-        cJSON *p = cJSON_GetObjectItem(row, "points");
-        if (p) points = p->valueint;
+        points = json_to_int(row, "points", BETTING_START_POINTS);
     } else {
         char ins[512];
         snprintf(ins, sizeof(ins), "INSERT INTO betting_users (identity, points, updated_at) VALUES ('%s', %d, CURRENT_TIMESTAMP);", esc_identity, BETTING_START_POINTS);
@@ -747,8 +754,8 @@ int db_settle_multiplayer_bets(cwist_db *db, int room_id, int winner_player, cJS
     int n = cJSON_GetArraySize(bets);
     for (int i = 0; i < n; i++) {
         cJSON *row = cJSON_GetArrayItem(bets, i);
-        int amount = cJSON_GetObjectItem(row, "amount")->valueint;
-        int target = cJSON_GetObjectItem(row, "target_player")->valueint;
+        int amount = json_to_int(row, "amount", 0);
+        int target = json_to_int(row, "target_player", 0);
         total_pool += amount;
         if (winner_player != 0 && target == winner_player) total_winner_bet += amount;
     }
@@ -756,10 +763,10 @@ int db_settle_multiplayer_bets(cwist_db *db, int room_id, int winner_player, cJS
     cJSON *payouts = cJSON_CreateArray();
     for (int i = 0; i < n; i++) {
         cJSON *row = cJSON_GetArrayItem(bets, i);
-        int bet_id = cJSON_GetObjectItem(row, "id")->valueint;
+        int bet_id = json_to_int(row, "id", 0);
         const char *identity = cJSON_GetObjectItem(row, "identity")->valuestring;
-        int amount = cJSON_GetObjectItem(row, "amount")->valueint;
-        int target = cJSON_GetObjectItem(row, "target_player")->valueint;
+        int amount = json_to_int(row, "amount", 0);
+        int target = json_to_int(row, "target_player", 0);
 
         long long reward = betting_multiplayer_reward(winner_player, target, amount, total_pool, total_winner_bet);
 
@@ -772,7 +779,7 @@ int db_settle_multiplayer_bets(cwist_db *db, int room_id, int winner_player, cJS
         cwist_db_query(db, q_user, &u);
         if (u && cJSON_GetArraySize(u) > 0) {
             cJSON *urow = cJSON_GetArrayItem(u, 0);
-            points = cJSON_GetObjectItem(urow, "points")->valueint;
+            points = json_to_int(urow, "points", BETTING_START_POINTS);
         } else {
             char ins_u[512];
             snprintf(ins_u, sizeof(ins_u), "INSERT INTO betting_users (identity, points, updated_at) VALUES ('%s', %d, CURRENT_TIMESTAMP);", esc_identity, BETTING_START_POINTS);
