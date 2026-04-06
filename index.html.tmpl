@@ -146,7 +146,22 @@
                             <input type="number" id="mp-bet-amount" min="1" value="100" style="max-width:100px;">
                             <button class="btn btn-primary btn-sm" onclick="placeMultiplayerBet(1)">Bet P1</button>
                             <button class="btn btn-outline btn-sm" onclick="placeMultiplayerBet(2)">Bet P2</button>
+                            <button class="btn btn-outline btn-sm" onclick="loadMultiplayerBetHistory()">Refresh History</button>
                         </div>
+                        <div id="mp-bet-preview" style="margin-top:0.5rem;font-size:0.85rem;color:var(--text-secondary);">
+                            예상 포인트 변동을 표시합니다.
+                        </div>
+                        <table style="width:100%; margin-top:0.7rem; text-align:left; border-collapse:collapse;">
+                            <thead>
+                                <tr style="border-bottom:1px solid var(--border-color);">
+                                    <th style="padding:6px;">Room</th>
+                                    <th style="padding:6px;">Target</th>
+                                    <th style="padding:6px;">Amount</th>
+                                    <th style="padding:6px;">Settled</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mp-bet-history-body"></tbody>
+                        </table>
                     </div>
                 </div>
                 <div style="margin-top:1rem; text-align:center;">
