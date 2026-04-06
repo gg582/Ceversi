@@ -1,4 +1,5 @@
 #include "db.h"
+#include "betting_logic.h"
 #include "memory.h"
 #include <cwist/core/db/sql.h>
 #include <cwist/sys/err/cwist_err.h>
@@ -12,19 +13,9 @@
 
 cwist_db *db_conn = NULL;
 static pthread_mutex_t db_mutex = PTHREAD_MUTEX_INITIALIZER;
-static const int BETTING_START_POINTS = 5000;
-static const int BETTING_MIN_POINTS = -1000;
-
-static int clamp_points_floor(long long value) {
-    if (value < BETTING_MIN_POINTS) return BETTING_MIN_POINTS;
-    if (value > INT_MAX) return INT_MAX;
-    if (value < INT_MIN) return INT_MIN;
-    return (int)value;
-}
-
 static int safe_add_points(int base, long long delta) {
     long long sum = (long long)base + delta;
-    return clamp_points_floor(sum);
+    return betting_clamp_points(sum);
 }
 
 static void sql_escape(const char *in, char *out, size_t out_sz) {
@@ -53,7 +44,7 @@ void init_db(cwist_db *db) {
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS games (room_id INTEGER PRIMARY KEY, board TEXT, turn INTEGER, status TEXT, players INTEGER, mode TEXT, user1_id INTEGER DEFAULT 0, user2_id INTEGER DEFAULT 0, session_type TEXT DEFAULT 'multiplayer', last_activity DATETIME DEFAULT CURRENT_TIMESTAMP);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password_hash TEXT, wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, ties INTEGER DEFAULT 0);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS game_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT NOT NULL, session_type TEXT NOT NULL, mode TEXT, difficulty TEXT, room_id INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
-    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting_users (identity TEXT PRIMARY KEY, points INTEGER DEFAULT 5000, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting_users (identity TEXT PRIMARY KEY, points INTEGER DEFAULT 1000, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting_slots (slot_id INTEGER PRIMARY KEY, difficulty TEXT, odds_win REAL, odds_lose REAL, odds_draw REAL, result TEXT, refresh_mark INTEGER, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS multiplayer_bets (id INTEGER PRIMARY KEY AUTOINCREMENT, room_id INTEGER NOT NULL, identity TEXT NOT NULL, target_player INTEGER NOT NULL, amount INTEGER NOT NULL, settled INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
     
@@ -585,6 +576,13 @@ int db_get_betting_points(cwist_db *db, const char *identity, int *points) {
         cJSON *row = cJSON_GetArrayItem(res, 0);
         cJSON *p = cJSON_GetObjectItem(row, "points");
         *points = p ? p->valueint : BETTING_START_POINTS;
+        int normalized = betting_reset_if_needed(*points);
+        if (normalized != *points) {
+            char upd[512];
+            snprintf(upd, sizeof(upd), "UPDATE betting_users SET points = %d, updated_at=CURRENT_TIMESTAMP WHERE identity='%s';", normalized, esc_identity);
+            cwist_db_exec(db, upd);
+            *points = normalized;
+        }
     } else {
         char ins[512];
         snprintf(ins, sizeof(ins), "INSERT INTO betting_users (identity, points, updated_at) VALUES ('%s', %d, CURRENT_TIMESTAMP);", esc_identity, BETTING_START_POINTS);
@@ -618,6 +616,7 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
         points = BETTING_START_POINTS;
     }
     if (user_res) cJSON_Delete(user_res);
+    points = betting_reset_if_needed(points);
 
     char q_slot[256];
     snprintf(q_slot, sizeof(q_slot), "SELECT odds_win, odds_lose, odds_draw, result FROM betting_slots WHERE slot_id = %d;", slot_id);
@@ -641,13 +640,14 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
         return -4;
     }
 
-    int delta = 0;
-    int success = strcmp(outcome, actual_result) == 0;
-    if (success) {
-        delta = (int)((double)amount * (odds - 1.0));
-    } else {
-        delta = -amount;
+    if (!betting_can_wager(points, amount)) {
+        cJSON_Delete(slot_res);
+        pthread_mutex_unlock(&db_mutex);
+        return -3;
     }
+
+    int success = strcmp(outcome, actual_result) == 0;
+    int delta = betting_single_delta(amount, odds, success);
     points = safe_add_points(points, delta);
 
     char upd[512];
@@ -698,6 +698,12 @@ int db_place_multiplayer_bet(cwist_db *db, const char *identity, int room_id, in
         cwist_db_exec(db, ins);
     }
     if (user_res) cJSON_Delete(user_res);
+    points = betting_reset_if_needed(points);
+
+    if (!betting_can_wager(points, amount)) {
+        pthread_mutex_unlock(&db_mutex);
+        return -3;
+    }
 
     points = safe_add_points(points, -((long long)amount));
     char upd[512];
@@ -755,12 +761,7 @@ int db_settle_multiplayer_bets(cwist_db *db, int room_id, int winner_player, cJS
         int amount = cJSON_GetObjectItem(row, "amount")->valueint;
         int target = cJSON_GetObjectItem(row, "target_player")->valueint;
 
-        long long reward = 0;
-        if (winner_player == 0) {
-            reward = amount;
-        } else if (target == winner_player && total_winner_bet > 0) {
-            reward = ((long long)amount * total_pool) / total_winner_bet;
-        }
+        long long reward = betting_multiplayer_reward(winner_player, target, amount, total_pool, total_winner_bet);
 
         char esc_identity[256];
         sql_escape(identity, esc_identity, sizeof(esc_identity));
@@ -806,4 +807,31 @@ int db_settle_multiplayer_bets(cwist_db *db, int room_id, int winner_player, cJS
     cJSON_Delete(bets);
     pthread_mutex_unlock(&db_mutex);
     return 0;
+}
+
+cJSON *db_get_multiplayer_bet_history(cwist_db *db, const char *identity, int room_id) {
+    if (!identity || strlen(identity) == 0) return cJSON_CreateArray();
+    char esc_identity[256];
+    sql_escape(identity, esc_identity, sizeof(esc_identity));
+
+    pthread_mutex_lock(&db_mutex);
+    cJSON *res = NULL;
+    char sql[768];
+    if (room_id > 0) {
+        snprintf(sql, sizeof(sql),
+                 "SELECT id, room_id, target_player, amount, settled, created_at "
+                 "FROM multiplayer_bets WHERE identity='%s' AND room_id=%d "
+                 "ORDER BY id DESC LIMIT 30;",
+                 esc_identity, room_id);
+    } else {
+        snprintf(sql, sizeof(sql),
+                 "SELECT id, room_id, target_player, amount, settled, created_at "
+                 "FROM multiplayer_bets WHERE identity='%s' "
+                 "ORDER BY id DESC LIMIT 30;",
+                 esc_identity);
+    }
+    cwist_db_query(db, sql, &res);
+    pthread_mutex_unlock(&db_mutex);
+    if (!res) return cJSON_CreateArray();
+    return res;
 }

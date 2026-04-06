@@ -1,6 +1,7 @@
 #include "handlers.h"
 #include "common.h"
 #include "db.h"
+#include "betting_logic.h"
 #include "utils.h"
 #include "memory.h"
 #include <cwist/sys/app/app.h>
@@ -519,7 +520,7 @@ static void build_identity(cwist_http_request *req, char *identity, size_t n) {
 void betting_enter_handler(cwist_http_request *req, cwist_http_response *res) {
     char identity[128];
     build_identity(req, identity, sizeof(identity));
-    int points = 5000;
+    int points = BETTING_START_POINTS;
     if (db_get_betting_points(req->db, identity, &points) != 0) {
         res->status_code = CWIST_HTTP_BAD_REQUEST;
         return;
@@ -634,7 +635,8 @@ void betting_multiplayer_place_handler(cwist_http_request *req, cwist_http_respo
     int rc = db_place_multiplayer_bet(req->db, identity, room_item->valueint, target_item->valueint, amount_item->valueint, &result);
     if (rc != 0) {
         cJSON *err = cJSON_CreateObject();
-        cJSON_AddStringToObject(err, "error", "Invalid multiplayer bet request");
+        if (rc == -3) cJSON_AddStringToObject(err, "error", "Bet amount exceeds allowed point range");
+        else cJSON_AddStringToObject(err, "error", "Invalid multiplayer bet request");
         char *err_str = cJSON_PrintUnformatted(err);
         cwist_sstring_assign(res->body, err_str);
         cev_mem_free(err_str);
@@ -649,6 +651,23 @@ void betting_multiplayer_place_handler(cwist_http_request *req, cwist_http_respo
     cev_mem_free(str);
     cJSON_Delete(result);
     cJSON_Delete(json);
+    cwist_http_header_add(&res->headers, "Content-Type", "application/json");
+}
+
+void betting_multiplayer_history_handler(cwist_http_request *req, cwist_http_response *res) {
+    const char *room_str = cwist_query_map_get(req->query_params, "room_id");
+    int room_id = room_str ? atoi(room_str) : 0;
+    char identity[128];
+    build_identity(req, identity, sizeof(identity));
+
+    cJSON *history = db_get_multiplayer_bet_history(req->db, identity, room_id);
+    cJSON *reply = cJSON_CreateObject();
+    cJSON_AddStringToObject(reply, "identity", identity);
+    cJSON_AddItemToObject(reply, "bets", history);
+    char *str = cJSON_PrintUnformatted(reply);
+    cwist_sstring_assign(res->body, str);
+    cev_mem_free(str);
+    cJSON_Delete(reply);
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
 }
 
