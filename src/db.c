@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <limits.h>
+#include <unistd.h>
 
 cwist_db *db_conn = NULL;
 static pthread_mutex_t db_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -17,6 +18,10 @@ static int safe_add_points(int base, long long delta) {
     long long sum = (long long)base + delta;
     return betting_clamp_points(sum);
 }
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 static void sql_escape(const char *in, char *out, size_t out_sz) {
     if (!out || out_sz == 0) return;
@@ -46,6 +51,45 @@ static int json_to_int(cJSON *obj, const char *key, int fallback) {
     return fallback;
 }
 
+static int ensure_betting_db_attached(cwist_db *db) {
+    cJSON *dbs = NULL;
+    cwist_db_query(db, "PRAGMA database_list;", &dbs);
+    if (dbs) {
+        int n = cJSON_GetArraySize(dbs);
+        for (int i = 0; i < n; i++) {
+            cJSON *row = cJSON_GetArrayItem(dbs, i);
+            cJSON *name = cJSON_GetObjectItem(row, "name");
+            if (name && name->valuestring && strcmp(name->valuestring, "betting") == 0) {
+                cJSON_Delete(dbs);
+                return 1;
+            }
+        }
+        cJSON_Delete(dbs);
+    }
+
+    char cwd[PATH_MAX];
+    if (!getcwd(cwd, sizeof(cwd))) {
+        fprintf(stderr, "Failed to resolve cwd for betting.db attach\n");
+        return 0;
+    }
+
+    char betting_db_path[PATH_MAX];
+    snprintf(betting_db_path, sizeof(betting_db_path), "%s/betting.db", cwd);
+
+    char esc_path[PATH_MAX * 2];
+    sql_escape(betting_db_path, esc_path, sizeof(esc_path));
+
+    char attach_sql[(PATH_MAX * 2) + 128];
+    snprintf(attach_sql, sizeof(attach_sql), "ATTACH DATABASE '%s' AS betting;", esc_path);
+    cwist_error_t err = cwist_db_exec(db, attach_sql);
+    if (err != CWIST_OK) {
+        fprintf(stderr, "Failed to attach betting.db: %s\n", cwist_strerror(err));
+        return 0;
+    }
+
+    return 1;
+}
+
 /* Initializes the database schema. Creates 'games' and 'users' tables if they don't exist.
    Also includes rudimentary migrations for adding user-related columns to older DBs. */
 void init_db(cwist_db *db) {
@@ -53,10 +97,11 @@ void init_db(cwist_db *db) {
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS games (room_id INTEGER PRIMARY KEY, board TEXT, turn INTEGER, status TEXT, players INTEGER, mode TEXT, user1_id INTEGER DEFAULT 0, user2_id INTEGER DEFAULT 0, session_type TEXT DEFAULT 'multiplayer', last_activity DATETIME DEFAULT CURRENT_TIMESTAMP);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password_hash TEXT, wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, ties INTEGER DEFAULT 0);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS game_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT NOT NULL, session_type TEXT NOT NULL, mode TEXT, difficulty TEXT, room_id INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
-    cwist_db_exec(db, "ATTACH DATABASE 'betting.db' AS betting;");
-    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting.betting_users (identity TEXT PRIMARY KEY, points INTEGER DEFAULT 1000, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
-    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting.betting_slots (slot_id INTEGER PRIMARY KEY, difficulty TEXT, odds_win REAL, odds_lose REAL, odds_draw REAL, result TEXT, refresh_mark INTEGER, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
-    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting.multiplayer_bets (id INTEGER PRIMARY KEY AUTOINCREMENT, room_id INTEGER NOT NULL, identity TEXT NOT NULL, target_player INTEGER NOT NULL, amount INTEGER NOT NULL, settled INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    if (ensure_betting_db_attached(db)) {
+        cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting.betting_users (identity TEXT PRIMARY KEY, points INTEGER DEFAULT 1000, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+        cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting.betting_slots (slot_id INTEGER PRIMARY KEY, difficulty TEXT, odds_win REAL, odds_lose REAL, odds_draw REAL, result TEXT, refresh_mark INTEGER, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+        cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting.multiplayer_bets (id INTEGER PRIMARY KEY AUTOINCREMENT, room_id INTEGER NOT NULL, identity TEXT NOT NULL, target_player INTEGER NOT NULL, amount INTEGER NOT NULL, settled INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    }
     
     // Migrations for existing DBs
     cwist_db_exec(db, "ALTER TABLE games ADD COLUMN mode TEXT;");
