@@ -152,8 +152,8 @@ static int ensure_betting_db_attached(cwist_db *db) {
     free(esc_path);
     cwist_error_t err = cwist_db_exec(db, attach_sql);
     free(attach_sql);
-    if (err != CWIST_OK) {
-        fprintf(stderr, "Failed to attach betting.db: %s\n", cwist_strerror(err));
+    if(err.error.err_i16) {
+        fprintf(stderr, "Failed to attach betting.db: code %d\n", err.error.err_i16);
         return 0;
     }
 
