@@ -15,4 +15,5 @@ services:
       - ./style.css:/app/style.css
       - ./script.js:/app/script.js
       - ./othello.db:/app/othello.db
+      - ./betting.db:/app/betting.db
     restart: always

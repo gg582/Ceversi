@@ -59,6 +59,7 @@ COPY script.js .
 
 # Ensure database file existence for initialization
 RUN touch othello.db
+RUN touch betting.db
 
 EXPOSE 31744
 
