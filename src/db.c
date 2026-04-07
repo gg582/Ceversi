@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <pthread.h>
 #include <time.h>
 #include <limits.h>
@@ -18,6 +19,15 @@ static int betting_db_warning_logged = 0;
 static int safe_add_points(int base, long long delta) {
     long long sum = (long long)base + delta;
     return betting_clamp_points(sum);
+}
+
+static const char *canonical_bet_outcome(const char *value) {
+    if (!value) return NULL;
+    if (strcasecmp(value, "win") == 0 || strcasecmp(value, "success") == 0) return "win";
+    if (strcasecmp(value, "lose") == 0 || strcasecmp(value, "loss") == 0 ||
+        strcasecmp(value, "failed") == 0 || strcasecmp(value, "fail") == 0) return "lose";
+    if (strcasecmp(value, "draw") == 0 || strcasecmp(value, "tie") == 0) return "draw";
+    return NULL;
 }
 
 static void sql_escape(const char *in, char *out, size_t out_sz) {
@@ -749,16 +759,20 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
     }
 
     cJSON *slot = cJSON_GetArrayItem(slot_res, 0);
-    const char *actual_result = cJSON_GetObjectItem(slot, "result")->valuestring;
-    double odds = 1.0;
-    if (strcmp(outcome, "win") == 0) odds = cJSON_GetObjectItem(slot, "odds_win")->valuedouble;
-    else if (strcmp(outcome, "lose") == 0) odds = cJSON_GetObjectItem(slot, "odds_lose")->valuedouble;
-    else if (strcmp(outcome, "draw") == 0) odds = cJSON_GetObjectItem(slot, "odds_draw")->valuedouble;
-    else {
+    cJSON *result_item = cJSON_GetObjectItem(slot, "result");
+    const char *actual_raw = (result_item && cJSON_IsString(result_item)) ? result_item->valuestring : NULL;
+    const char *actual_result = canonical_bet_outcome(actual_raw);
+    const char *picked_outcome = canonical_bet_outcome(outcome);
+    if (!actual_result || !picked_outcome) {
         cJSON_Delete(slot_res);
         pthread_mutex_unlock(&db_mutex);
         return -4;
     }
+
+    double odds = 1.0;
+    if (strcmp(picked_outcome, "win") == 0) odds = cJSON_GetObjectItem(slot, "odds_win")->valuedouble;
+    else if (strcmp(picked_outcome, "lose") == 0) odds = cJSON_GetObjectItem(slot, "odds_lose")->valuedouble;
+    else if (strcmp(picked_outcome, "draw") == 0) odds = cJSON_GetObjectItem(slot, "odds_draw")->valuedouble;
 
     if (!betting_can_wager(points, amount)) {
         cJSON_Delete(slot_res);
@@ -766,7 +780,7 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
         return -3;
     }
 
-    int success = strcmp(outcome, actual_result) == 0;
+    int success = strcmp(picked_outcome, actual_result) == 0;
     int delta = betting_single_delta(amount, odds, success);
     points = safe_add_points(points, delta);
 
