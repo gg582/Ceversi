@@ -25,7 +25,8 @@ int betting_can_wager(int current_points, int amount) {
 int betting_single_delta(int amount, double odds, int success) {
     if (amount <= 0) return 0;
     if (!success) return -amount;
-    return (int)((double)amount * (odds - 1.0));
+    int profit = (int)((double)amount * (odds - 1.0));
+    return profit > 0 ? profit : 0;
 }
 
 long long betting_multiplayer_reward(int winner_player, int target_player, int amount, long long total_pool, long long total_winner_bet) {
