@@ -57,7 +57,8 @@ static int betting_db_available(void) {
 }
 
 static int ensure_betting_db_attached(cwist_db *db) {
-    const char *main_file = NULL;
+    char *main_file = NULL;
+    int already_attached = 0;
     cJSON *dbs = NULL;
     cwist_db_query(db, "PRAGMA database_list;", &dbs);
     if (dbs) {
@@ -66,16 +67,22 @@ static int ensure_betting_db_attached(cwist_db *db) {
             cJSON *row = cJSON_GetArrayItem(dbs, i);
             cJSON *name = cJSON_GetObjectItem(row, "name");
             if (name && name->valuestring && strcmp(name->valuestring, "betting") == 0) {
-                cJSON_Delete(dbs);
-                return 1;
+                already_attached = 1;
+                break;
             }
             if (name && name->valuestring && strcmp(name->valuestring, "main") == 0) {
                 cJSON *file = cJSON_GetObjectItem(row, "file");
                 if (file && file->valuestring && file->valuestring[0] != '\0') {
-                    main_file = file->valuestring;
+                    free(main_file);
+                    main_file = strdup(file->valuestring);
                 }
             }
         }
+        cJSON_Delete(dbs);
+    }
+    if (already_attached) {
+        free(main_file);
+        return 1;
     }
 
     char *base_dir = NULL;
@@ -85,7 +92,7 @@ static int ensure_betting_db_attached(cwist_db *db) {
             size_t dir_len = (size_t)(slash - main_file);
             base_dir = (char *)malloc(dir_len + 1);
             if (!base_dir) {
-                if (dbs) cJSON_Delete(dbs);
+                free(main_file);
                 fprintf(stderr, "Failed to allocate memory for betting db path\n");
                 return 0;
             }
@@ -96,7 +103,7 @@ static int ensure_betting_db_attached(cwist_db *db) {
     if (!base_dir) {
         base_dir = realpath(".", NULL);
     }
-    if (dbs) cJSON_Delete(dbs);
+    free(main_file);
     if (!base_dir) {
         fprintf(stderr, "Failed to resolve deterministic base path for betting.db\n");
         return 0;
@@ -112,7 +119,7 @@ static int ensure_betting_db_attached(cwist_db *db) {
     snprintf(betting_db_path, path_len, "%s/betting.db", base_dir);
     free(base_dir);
 
-    size_t esc_len = strlen(betting_db_path) * 2 + 1;
+    size_t esc_len = (strlen(betting_db_path) * 2) + 3;
     char *esc_path = (char *)malloc(esc_len);
     if (!esc_path) {
         free(betting_db_path);
@@ -122,14 +129,16 @@ static int ensure_betting_db_attached(cwist_db *db) {
     sql_escape(betting_db_path, esc_path, esc_len);
     free(betting_db_path);
 
-    size_t attach_len = strlen(esc_path) + 64;
+    const char *attach_prefix = "ATTACH DATABASE '";
+    const char *attach_suffix = "' AS betting;";
+    size_t attach_len = strlen(attach_prefix) + strlen(esc_path) + strlen(attach_suffix) + 1;
     char *attach_sql = (char *)malloc(attach_len);
     if (!attach_sql) {
         free(esc_path);
         fprintf(stderr, "Failed to allocate attach SQL buffer\n");
         return 0;
     }
-    snprintf(attach_sql, attach_len, "ATTACH DATABASE '%s' AS betting;", esc_path);
+    snprintf(attach_sql, attach_len, "%s%s%s", attach_prefix, esc_path, attach_suffix);
     free(esc_path);
     cwist_error_t err = cwist_db_exec(db, attach_sql);
     free(attach_sql);
@@ -149,7 +158,7 @@ void init_db(cwist_db *db) {
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password_hash TEXT, wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, ties INTEGER DEFAULT 0);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS game_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT NOT NULL, session_type TEXT NOT NULL, mode TEXT, difficulty TEXT, room_id INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
     betting_db_ready = ensure_betting_db_attached(db);
-    betting_db_warning_logged = 0;
+    if (betting_db_ready) betting_db_warning_logged = 0;
     if (betting_db_ready) {
         cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting.betting_users (identity TEXT PRIMARY KEY, points INTEGER DEFAULT 1000, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
         cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting.betting_slots (slot_id INTEGER PRIMARY KEY, difficulty TEXT, odds_win REAL, odds_lose REAL, odds_draw REAL, result TEXT, refresh_mark INTEGER, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
