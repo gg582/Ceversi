@@ -1,79 +1,63 @@
 # --- C Build Stage ---
 FROM alpine:latest AS c_builder
 
-# Install build dependencies
-# Using edge community repository to ensure latest versions of libraries
-RUN apk update
-RUN apk add --no-cache \
+# Install build dependencies from edge community for latest library support
+RUN apk update && apk add --no-cache \
     tcc clang lld musl-dev make sqlite-dev openssl-dev cjson-dev uriparser-dev git libc-utils linux-headers cmake \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community
 
 WORKDIR /app
 
-# Copy the entire project context
-COPY . .
-
-ARG LIBTTAK_REPO="https://github.com/gg582/libttak.git"
+# Build libttak (external dependency)
+ARG LIBTTAK_REPO="https://github.com/religiya-serdtsa/libttak.git"
 ARG LIBTTAK_REF="main"
-
 RUN git clone --depth 1 --branch "${LIBTTAK_REF}" "${LIBTTAK_REPO}" /app/libttak
 WORKDIR /app/libttak
-RUN make clean && LDFLAGS="${LDFLAGS} -Wl,--no-eh-frame-hdr -fuse-ld=lld" make && \
+RUN make clean && LDFLAGS="${LDFLAGS} -Wl,--no-eh-frame-hdr -fuse-ld=lld" make -j$(nproc) && \
     make install
 
-ARG CWIST_REPO="https://github.com/gg582/cwist.git"
+# Build cwist (core framework)
+ARG CWIST_REPO="https://github.com/religiya-serdtsa/cwist.git"
 ARG CWIST_REF="main"
 RUN git clone --depth 1 --branch "${CWIST_REF}" "${CWIST_REPO}" /app/cwist
 RUN git -C /app/cwist submodule update --init --recursive
 
-# 1. Install Headers (Include) manually to system paths
-# This resolves compilation issues where Makefiles use relative paths (e.g., -I../include)
-# by making headers available globally in /usr/local/include.
-
-# 2. Build Library & Install (Link)
-# Build libcwist.a and copy it to /usr/lib so the linker finds it automatically
-# without needing specific -L flags.
 WORKDIR /app/cwist
-RUN cat <<'EOF' >/usr/bin/gcc
-#!/bin/sh
-/usr/bin/gcc -std=gnu17 "$@"
-EOF
 
-RUN chmod +x /usr/bin/gcc && \
-    rm -rf lib/libttak && mkdir -p lib && \
+# Define a compiler wrapper to enforce gnu17 standard during library build
+RUN printf '#!/bin/sh\n/usr/bin/gcc -std=gnu17 "$@"' > /usr/local/bin/gcc-std && \
+    chmod +x /usr/local/bin/gcc-std
+
+# Build cwist with linked libttak
+RUN rm -rf lib/libttak && mkdir -p lib && \
     cp -r /app/libttak lib/libttak && \
-    env LDFLAGS="${LDFLAGS} -fuse-ld=lld -Wl,--no-eh-frame-hdr" CC=gcc make && \
-    env CC=gcc make install && \
-    rm /usr/local/bin/gcc
+    env LDFLAGS="${LDFLAGS} -fuse-ld=lld -Wl,--no-eh-frame-hdr" CC=/usr/local/bin/gcc-std make -j$(nproc) && \
+    env CC=/usr/local/bin/gcc-std make install
 
-# 3. Build Main Server
-# Navigate back to root to build the backend server binary
+# Build Main Server
 WORKDIR /app
-RUN make clean && make
+COPY . .
+RUN make clean && make -j$(nproc)
 
 
 # --- Final Run Stage ---
 FROM alpine:latest
 
-# Install runtime dependencies required for the C server
+# Install runtime shared libraries
 RUN apk add --no-cache \
     sqlite-libs openssl cjson uriparser libgcc \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community
 
 WORKDIR /app
 
-# Copy the compiled C backend binary
+# Copy binary and assets from builder
 COPY --from=c_builder /app/server ./ceversi
-
 COPY public/ ./public/
-
-# Copy root-level templates and fallback assets
 COPY index.html.tmpl .
 COPY style.css .
 COPY script.js .
 
-# Ensure the runtime image always has a database file to initialize even when
-# developers haven't pre-created ./othello.db locally.
+# Ensure database file existence for initialization
 RUN touch othello.db
 
 EXPOSE 31744
