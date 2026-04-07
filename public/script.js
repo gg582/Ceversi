@@ -50,7 +50,8 @@ async function initBettingWasm() {
             wasm_betting_single_delta: (amount, oddsX1000, success) => {
                 const odds = oddsX1000 / 1000;
                 if (!success) return -amount;
-                return Math.max(0, Math.floor(amount * (odds - 1.0)));
+                const profitRate = odds > 1 ? (odds - 1) : (odds > 0 ? odds : 0);
+                return Math.max(0, Math.floor(amount * profitRate));
             },
             wasm_betting_can_wager: (currentPoints, amount) => (currentPoints - amount >= -1000 ? 1 : 0),
             wasm_betting_project_points: (currentPoints, delta) => Math.max(-1000, currentPoints + delta)
