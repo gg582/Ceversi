@@ -28,8 +28,10 @@ int betting_single_delta(int amount, double odds, int success) {
     double profit_rate = 0.0;
     if (odds > 1.0) profit_rate = odds - 1.0;
     else if (odds > 0.0) profit_rate = odds;
+    else profit_rate = 1.0;
     int profit = (int)((double)amount * profit_rate);
-    return profit > 0 ? profit : 0;
+    if (profit <= 0) profit = amount;
+    return profit;
 }
 
 long long betting_multiplayer_reward(int winner_player, int target_player, int amount, long long total_pool, long long total_winner_bet) {
