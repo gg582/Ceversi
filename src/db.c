@@ -10,18 +10,15 @@
 #include <pthread.h>
 #include <time.h>
 #include <limits.h>
-#include <unistd.h>
 
 cwist_db *db_conn = NULL;
 static pthread_mutex_t db_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int betting_db_ready = 0;
+static int betting_db_warning_logged = 0;
 static int safe_add_points(int base, long long delta) {
     long long sum = (long long)base + delta;
     return betting_clamp_points(sum);
 }
-
-#ifndef PATH_MAX
-#define PATH_MAX 4096
-#endif
 
 static void sql_escape(const char *in, char *out, size_t out_sz) {
     if (!out || out_sz == 0) return;
@@ -51,7 +48,16 @@ static int json_to_int(cJSON *obj, const char *key, int fallback) {
     return fallback;
 }
 
+static int betting_db_available(void) {
+    if (!betting_db_ready && !betting_db_warning_logged) {
+        fprintf(stderr, "betting database is not attached; betting endpoints are unavailable\n");
+        betting_db_warning_logged = 1;
+    }
+    return betting_db_ready;
+}
+
 static int ensure_betting_db_attached(cwist_db *db) {
+    const char *main_file = NULL;
     cJSON *dbs = NULL;
     cwist_db_query(db, "PRAGMA database_list;", &dbs);
     if (dbs) {
@@ -63,25 +69,70 @@ static int ensure_betting_db_attached(cwist_db *db) {
                 cJSON_Delete(dbs);
                 return 1;
             }
+            if (name && name->valuestring && strcmp(name->valuestring, "main") == 0) {
+                cJSON *file = cJSON_GetObjectItem(row, "file");
+                if (file && file->valuestring && file->valuestring[0] != '\0') {
+                    main_file = file->valuestring;
+                }
+            }
         }
-        cJSON_Delete(dbs);
     }
 
-    char cwd[PATH_MAX];
-    if (!getcwd(cwd, sizeof(cwd))) {
-        fprintf(stderr, "Failed to resolve cwd for betting.db attach\n");
+    char *base_dir = NULL;
+    if (main_file && main_file[0] == '/') {
+        const char *slash = strrchr(main_file, '/');
+        if (slash) {
+            size_t dir_len = (size_t)(slash - main_file);
+            base_dir = (char *)malloc(dir_len + 1);
+            if (!base_dir) {
+                if (dbs) cJSON_Delete(dbs);
+                fprintf(stderr, "Failed to allocate memory for betting db path\n");
+                return 0;
+            }
+            memcpy(base_dir, main_file, dir_len);
+            base_dir[dir_len] = '\0';
+        }
+    }
+    if (!base_dir) {
+        base_dir = realpath(".", NULL);
+    }
+    if (dbs) cJSON_Delete(dbs);
+    if (!base_dir) {
+        fprintf(stderr, "Failed to resolve deterministic base path for betting.db\n");
         return 0;
     }
 
-    char betting_db_path[PATH_MAX];
-    snprintf(betting_db_path, sizeof(betting_db_path), "%s/betting.db", cwd);
+    size_t path_len = strlen(base_dir) + strlen("/betting.db") + 1;
+    char *betting_db_path = (char *)malloc(path_len);
+    if (!betting_db_path) {
+        free(base_dir);
+        fprintf(stderr, "Failed to allocate betting db path\n");
+        return 0;
+    }
+    snprintf(betting_db_path, path_len, "%s/betting.db", base_dir);
+    free(base_dir);
 
-    char esc_path[PATH_MAX * 2];
-    sql_escape(betting_db_path, esc_path, sizeof(esc_path));
+    size_t esc_len = strlen(betting_db_path) * 2 + 1;
+    char *esc_path = (char *)malloc(esc_len);
+    if (!esc_path) {
+        free(betting_db_path);
+        fprintf(stderr, "Failed to allocate escaped betting db path\n");
+        return 0;
+    }
+    sql_escape(betting_db_path, esc_path, esc_len);
+    free(betting_db_path);
 
-    char attach_sql[(PATH_MAX * 2) + 128];
-    snprintf(attach_sql, sizeof(attach_sql), "ATTACH DATABASE '%s' AS betting;", esc_path);
+    size_t attach_len = strlen(esc_path) + 64;
+    char *attach_sql = (char *)malloc(attach_len);
+    if (!attach_sql) {
+        free(esc_path);
+        fprintf(stderr, "Failed to allocate attach SQL buffer\n");
+        return 0;
+    }
+    snprintf(attach_sql, attach_len, "ATTACH DATABASE '%s' AS betting;", esc_path);
+    free(esc_path);
     cwist_error_t err = cwist_db_exec(db, attach_sql);
+    free(attach_sql);
     if (err != CWIST_OK) {
         fprintf(stderr, "Failed to attach betting.db: %s\n", cwist_strerror(err));
         return 0;
@@ -97,7 +148,9 @@ void init_db(cwist_db *db) {
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS games (room_id INTEGER PRIMARY KEY, board TEXT, turn INTEGER, status TEXT, players INTEGER, mode TEXT, user1_id INTEGER DEFAULT 0, user2_id INTEGER DEFAULT 0, session_type TEXT DEFAULT 'multiplayer', last_activity DATETIME DEFAULT CURRENT_TIMESTAMP);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password_hash TEXT, wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, ties INTEGER DEFAULT 0);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS game_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT NOT NULL, session_type TEXT NOT NULL, mode TEXT, difficulty TEXT, room_id INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
-    if (ensure_betting_db_attached(db)) {
+    betting_db_ready = ensure_betting_db_attached(db);
+    betting_db_warning_logged = 0;
+    if (betting_db_ready) {
         cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting.betting_users (identity TEXT PRIMARY KEY, points INTEGER DEFAULT 1000, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
         cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting.betting_slots (slot_id INTEGER PRIMARY KEY, difficulty TEXT, odds_win REAL, odds_lose REAL, odds_draw REAL, result TEXT, refresh_mark INTEGER, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
         cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS betting.multiplayer_bets (id INTEGER PRIMARY KEY AUTOINCREMENT, room_id INTEGER NOT NULL, identity TEXT NOT NULL, target_player INTEGER NOT NULL, amount INTEGER NOT NULL, settled INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
@@ -560,6 +613,7 @@ cJSON *db_get_recent_sessions(cwist_db *db, const char *identity, const char *se
 }
 
 void db_refresh_betting_slots(cwist_db *db) {
+    if (!betting_db_available()) return;
     pthread_mutex_lock(&db_mutex);
     cJSON *res = NULL;
     cwist_db_query(db, "SELECT COUNT(*) AS cnt FROM betting.betting_slots;", &res);
@@ -609,6 +663,7 @@ void db_refresh_betting_slots(cwist_db *db) {
 }
 
 cJSON *db_get_betting_slots(cwist_db *db) {
+    if (!betting_db_available()) return cJSON_CreateArray();
     db_refresh_betting_slots(db);
     pthread_mutex_lock(&db_mutex);
     cJSON *res = NULL;
@@ -619,6 +674,7 @@ cJSON *db_get_betting_slots(cwist_db *db) {
 }
 
 int db_get_betting_points(cwist_db *db, const char *identity, int *points) {
+    if (!betting_db_available()) return -1;
     if (!identity || strlen(identity) == 0) return -1;
     char esc_identity[256];
     sql_escape(identity, esc_identity, sizeof(esc_identity));
@@ -649,6 +705,7 @@ int db_get_betting_points(cwist_db *db, const char *identity, int *points) {
 }
 
 int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *outcome, int amount, cJSON **result_json) {
+    if (!betting_db_available()) return -1;
     if (!identity || !outcome || amount <= 0) return -1;
     db_refresh_betting_slots(db);
     char esc_identity[256];
@@ -722,6 +779,7 @@ int db_apply_bet(cwist_db *db, const char *identity, int slot_id, const char *ou
 }
 
 cJSON *db_get_betting_rankings(cwist_db *db) {
+    if (!betting_db_available()) return cJSON_CreateArray();
     pthread_mutex_lock(&db_mutex);
     cJSON *res = NULL;
     cwist_db_query(db, "SELECT identity, points, updated_at FROM betting.betting_users ORDER BY points DESC, updated_at ASC LIMIT 20;", &res);
@@ -731,6 +789,7 @@ cJSON *db_get_betting_rankings(cwist_db *db) {
 }
 
 int db_place_multiplayer_bet(cwist_db *db, const char *identity, int room_id, int target_player, int amount, cJSON **result_json) {
+    if (!betting_db_available()) return -1;
     if (!identity || room_id <= 0 || amount <= 0) return -1;
     if (target_player != 1 && target_player != 2) return -1;
     char esc_identity[256];
@@ -782,6 +841,7 @@ int db_place_multiplayer_bet(cwist_db *db, const char *identity, int room_id, in
 }
 
 int db_settle_multiplayer_bets(cwist_db *db, int room_id, int winner_player, cJSON **settle_json) {
+    if (!betting_db_available()) return -1;
     if (room_id <= 0) return -1;
     pthread_mutex_lock(&db_mutex);
 
@@ -863,6 +923,7 @@ int db_settle_multiplayer_bets(cwist_db *db, int room_id, int winner_player, cJS
 }
 
 cJSON *db_get_multiplayer_bet_history(cwist_db *db, const char *identity, int room_id) {
+    if (!betting_db_available()) return cJSON_CreateArray();
     if (!identity || strlen(identity) == 0) return cJSON_CreateArray();
     char esc_identity[256];
     sql_escape(identity, esc_identity, sizeof(esc_identity));
