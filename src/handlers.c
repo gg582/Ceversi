@@ -124,10 +124,22 @@ void join_handler(cwist_http_request *req, cwist_http_response *res) {
 void leave_handler(cwist_http_request *req, cwist_http_response *res) {
     int room_id = get_room_id(req);
     const char *user_id_str = cwist_query_map_get(req->query_params, "user_id");
+    const char *guest_id = cwist_query_map_get(req->query_params, "guest_id");
     const char *player_id_str = cwist_query_map_get(req->query_params, "player_id");
     int user_id = user_id_str ? atoi(user_id_str) : 0;
     int player_id = player_id_str ? atoi(player_id_str) : 0;
+    char identity[128];
+    if (user_id > 0) {
+        snprintf(identity, sizeof(identity), "user:%d", user_id);
+    } else if (guest_id && strlen(guest_id) > 0) {
+        snprintf(identity, sizeof(identity), "guest:%s", guest_id);
+    } else {
+        identity[0] = '\0';
+    }
     db_leave_game(req->db, room_id, player_id, user_id);
+    if (identity[0] != '\0') {
+        db_remove_multiplayer_session(req->db, identity, room_id);
+    }
     cwist_sstring_assign(res->body, "{\"status\": \"ok\"}");
     cwist_http_header_add(&res->headers, "Content-Type", "application/json");
 }

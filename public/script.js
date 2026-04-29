@@ -243,7 +243,14 @@ async function refreshSessionLists() {
         if (!rooms.length) {
             multiEl.innerText = 'No multiplayer room yet';
         } else {
-            multiEl.innerText = rooms.map((r) => `#${r.room_id || 0} ${r.mode}`).join(' | ');
+            const seenRooms = new Set();
+            const uniqueRooms = rooms.filter((r) => {
+                const room = Number(r.room_id || 0);
+                if (room <= 0 || seenRooms.has(room)) return false;
+                seenRooms.add(room);
+                return true;
+            });
+            multiEl.innerText = uniqueRooms.map((r) => `#${r.room_id || 0} ${r.mode}`).join(' | ');
         }
     } catch (e) {
         singleEl.innerText = 'Failed to load singleplayer sessions';
@@ -333,7 +340,7 @@ function exitGame(skipNotify = false) {
         if (!skipNotify) {
             const roomId = document.getElementById('room-input').value;
             const userId = currentUser ? currentUser.user_id : 0;
-            fetch(`/leave?room=${roomId}&player_id=${myPlayerId}&user_id=${userId}`, { method: 'POST' }).catch(console.error);
+            fetch(`/leave?room=${roomId}&player_id=${myPlayerId}&user_id=${userId}&guest_id=${encodeURIComponent(sessionGuestId)}`, { method: 'POST' }).catch(console.error);
         }
         isMultiplayer = false;
         myPlayerId = 0;
