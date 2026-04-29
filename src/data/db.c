@@ -167,7 +167,8 @@ void init_db(cwist_db *db) {
     pthread_mutex_lock(&db_mutex);
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS games (room_id INTEGER PRIMARY KEY, board TEXT, turn INTEGER, status TEXT, players INTEGER, mode TEXT, user1_id INTEGER DEFAULT 0, user2_id INTEGER DEFAULT 0, session_type TEXT DEFAULT 'multiplayer', last_activity DATETIME DEFAULT CURRENT_TIMESTAMP);");
     cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password_hash TEXT, wins INTEGER DEFAULT 0, losses INTEGER DEFAULT 0, ties INTEGER DEFAULT 0);");
-    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS game_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT NOT NULL, session_type TEXT NOT NULL, mode TEXT, difficulty TEXT, room_id INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS single_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT NOT NULL, mode TEXT, difficulty TEXT, room_id INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
+    cwist_db_exec(db, "CREATE TABLE IF NOT EXISTS multi_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, identity TEXT NOT NULL, mode TEXT, room_id INTEGER DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);");
     betting_db_ready = ensure_betting_db_attached(db);
     if (betting_db_ready) betting_db_warning_logged = 0;
     if (betting_db_ready) {
@@ -416,74 +417,18 @@ int db_join_game(cwist_db *db, int room_id, const char *requested_mode, int *pla
 
 void db_leave_game(cwist_db *db, int room_id, int player_id, int user_id) {
     pthread_mutex_lock(&db_mutex);
-    char sql[256];
-    snprintf(sql, sizeof(sql), "SELECT players, user1_id, user2_id FROM games WHERE room_id = %d AND session_type='multiplayer';", room_id);
-    cJSON *res = NULL;
-    cwist_db_query(db, sql, &res);
-    if (cJSON_GetArraySize(res) == 0) {
-        cJSON_Delete(res);
-        pthread_mutex_unlock(&db_mutex);
-        return;
-    }
+    char sql[512];
+    
+    // 1. Immediately drop the game from 'games' table
+    snprintf(sql, sizeof(sql), "DELETE FROM games WHERE room_id = %d;", room_id);
+    cwist_db_exec(db, sql);
 
-    cJSON *row = cJSON_GetArrayItem(res, 0);
-    int current_players = 0;
-    cJSON *p = cJSON_GetObjectItem(row, "players");
-    if (p) {
-        if (p->valuestring) current_players = atoi(p->valuestring);
-        else if (cJSON_IsNumber(p)) current_players = p->valueint;
-    }
-
-    int user1_id = 0;
-    int user2_id = 0;
-    cJSON *u1 = cJSON_GetObjectItem(row, "user1_id");
-    cJSON *u2 = cJSON_GetObjectItem(row, "user2_id");
-    if (u1) {
-        if (u1->valuestring) user1_id = atoi(u1->valuestring);
-        else if (cJSON_IsNumber(u1)) user1_id = u1->valueint;
-    }
-    if (u2) {
-        if (u2->valuestring) user2_id = atoi(u2->valuestring);
-        else if (cJSON_IsNumber(u2)) user2_id = u2->valueint;
-    }
-
-    int leaving_slot = 0;
-    if (player_id == 1 || player_id == 2) {
-        leaving_slot = player_id;
-    } else if (user_id > 0 && user_id == user1_id) {
-        leaving_slot = 1;
-    } else if (user_id > 0 && user_id == user2_id) {
-        leaving_slot = 2;
-    }
-
-    if (leaving_slot == 0) {
-        cJSON_Delete(res);
-        pthread_mutex_unlock(&db_mutex);
-        return;
-    }
-
-    if (current_players >= 2 || current_players <= 1) {
-        char drop_sql[128];
-        snprintf(drop_sql, sizeof(drop_sql), "UPDATE games SET status = 'dropped' WHERE room_id = %d AND session_type='multiplayer';", room_id);
-        cwist_db_exec(db, drop_sql);
-        cJSON_Delete(res);
-        pthread_mutex_unlock(&db_mutex);
-        return;
-    }
-
-    int new_players = current_players - 1;
-    if (new_players < 0) new_players = 0;
-    if (user_id > 0) {
-        if (leaving_slot == 1) user1_id = 0;
-        if (leaving_slot == 2) user2_id = 0;
-        new_players = (user1_id != 0) + (user2_id != 0);
-    }
-    const char *new_status = (new_players == 2) ? "active" : "waiting";
-    char update[256];
-    snprintf(update, sizeof(update), "UPDATE games SET players=%d, status='%s', user1_id=%d, user2_id=%d, last_activity=CURRENT_TIMESTAMP WHERE room_id=%d AND session_type='multiplayer';",
-             new_players, new_status, user1_id, user2_id, room_id);
-    cwist_db_exec(db, update);
-    cJSON_Delete(res);
+    // 2. Immediately cleanup sessions from BOTH tables for this room
+    snprintf(sql, sizeof(sql), "DELETE FROM multi_sessions WHERE room_id = %d;", room_id);
+    cwist_db_exec(db, sql);
+    snprintf(sql, sizeof(sql), "DELETE FROM single_sessions WHERE room_id = %d;", room_id);
+    cwist_db_exec(db, sql);
+    
     pthread_mutex_unlock(&db_mutex);
 }
 
@@ -595,31 +540,32 @@ int db_log_game_session(cwist_db *db, const char *identity, const char *session_
     const char *safe_mode = (mode && strlen(mode) > 0) ? mode : "othello";
     const char *safe_difficulty = (difficulty && strlen(difficulty) > 0) ? difficulty : "";
     char esc_identity[256];
-    char esc_type[64];
     char esc_mode[64];
     char esc_difficulty[64];
     sql_escape(identity, esc_identity, sizeof(esc_identity));
-    sql_escape(session_type, esc_type, sizeof(esc_type));
     sql_escape(safe_mode, esc_mode, sizeof(esc_mode));
     sql_escape(safe_difficulty, esc_difficulty, sizeof(esc_difficulty));
     char sql[1024];
-    if (strcmp(session_type, "multiplayer") == 0 && room_id > 0) {
-        snprintf(sql, sizeof(sql),
-                 "DELETE FROM game_sessions WHERE identity='%s' AND session_type='multiplayer' AND room_id=%d;",
-                 esc_identity, room_id);
-        pthread_mutex_lock(&db_mutex);
-        cwist_db_exec(db, sql);
-        snprintf(sql, sizeof(sql),
-                 "INSERT INTO game_sessions (identity, session_type, mode, difficulty, room_id, created_at) VALUES ('%s', '%s', '%s', '%s', %d, CURRENT_TIMESTAMP);",
-                 esc_identity, esc_type, esc_mode, esc_difficulty, room_id);
-        cwist_error_t err = cwist_db_exec(db, sql);
-        pthread_mutex_unlock(&db_mutex);
-        return err.error.err_i16;
-    }
-    snprintf(sql, sizeof(sql),
-             "INSERT INTO game_sessions (identity, session_type, mode, difficulty, room_id, created_at) VALUES ('%s', '%s', '%s', '%s', %d, CURRENT_TIMESTAMP);",
-             esc_identity, esc_type, esc_mode, esc_difficulty, room_id);
+
     pthread_mutex_lock(&db_mutex);
+    if (strcmp(session_type, "multiplayer") == 0) {
+        if (room_id > 0) {
+            snprintf(sql, sizeof(sql),
+                     "DELETE FROM multi_sessions WHERE identity='%s' AND room_id=%d;",
+                     esc_identity, room_id);
+            cwist_db_exec(db, sql);
+            snprintf(sql, sizeof(sql),
+                     "INSERT INTO multi_sessions (identity, mode, room_id, created_at) VALUES ('%s', '%s', %d, CURRENT_TIMESTAMP);",
+                     esc_identity, esc_mode, room_id);
+        } else {
+             pthread_mutex_unlock(&db_mutex);
+             return -1;
+        }
+    } else {
+        snprintf(sql, sizeof(sql),
+                 "INSERT INTO single_sessions (identity, mode, difficulty, room_id, created_at) VALUES ('%s', '%s', '%s', %d, CURRENT_TIMESTAMP);",
+                 esc_identity, esc_mode, esc_difficulty, room_id);
+    }
     cwist_error_t err = cwist_db_exec(db, sql);
     pthread_mutex_unlock(&db_mutex);
     return err.error.err_i16;
@@ -631,7 +577,7 @@ int db_remove_multiplayer_session(cwist_db *db, const char *identity, int room_i
     sql_escape(identity, esc_identity, sizeof(esc_identity));
     char sql[512];
     snprintf(sql, sizeof(sql),
-             "DELETE FROM game_sessions WHERE identity='%s' AND session_type='multiplayer' AND room_id=%d;",
+             "DELETE FROM multi_sessions WHERE identity='%s' AND room_id=%d;",
              esc_identity, room_id);
     pthread_mutex_lock(&db_mutex);
     cwist_error_t err = cwist_db_exec(db, sql);
@@ -644,14 +590,19 @@ cJSON *db_get_recent_sessions(cwist_db *db, const char *identity, const char *se
     if (limit <= 0) limit = 8;
     if (limit > 100) limit = 100;
     char esc_identity[256];
-    char esc_type[64];
     sql_escape(identity, esc_identity, sizeof(esc_identity));
-    sql_escape(session_type, esc_type, sizeof(esc_type));
     char sql[1024];
-    snprintf(sql, sizeof(sql),
-             "SELECT id, session_type, mode, difficulty, room_id, created_at FROM game_sessions WHERE identity='%s' AND session_type='%s' ORDER BY id DESC LIMIT %d;",
-             esc_identity, esc_type, limit);
+
     pthread_mutex_lock(&db_mutex);
+    if (strcmp(session_type, "multiplayer") == 0) {
+        snprintf(sql, sizeof(sql),
+                 "SELECT id, 'multiplayer' as session_type, mode, '' as difficulty, room_id, created_at FROM multi_sessions WHERE identity='%s' ORDER BY id DESC LIMIT %d;",
+                 esc_identity, limit);
+    } else {
+        snprintf(sql, sizeof(sql),
+                 "SELECT id, 'singleplayer' as session_type, mode, difficulty, room_id, created_at FROM single_sessions WHERE identity='%s' ORDER BY id DESC LIMIT %d;",
+                 esc_identity, limit);
+    }
     cJSON *res = NULL;
     cwist_db_query(db, sql, &res);
     pthread_mutex_unlock(&db_mutex);
@@ -998,6 +949,64 @@ cJSON *db_get_multiplayer_bet_history(cwist_db *db, const char *identity, int ro
         snprintf(sql, sizeof(sql),
                  "SELECT id, room_id, target_player, amount, settled, created_at "
                  "FROM betting.multiplayer_bets WHERE identity='%s' "
+                 "ORDER BY id DESC LIMIT 30;",
+                 esc_identity);
+    }
+    cwist_db_query(db, sql, &res);
+    pthread_mutex_unlock(&db_mutex);
+    if (!res) return cJSON_CreateArray();
+    return res;
+}
+' "
+                 "ORDER BY id DESC LIMIT 30;",
+                 esc_identity);
+    }
+    cwist_db_query(db, sql, &res);
+    pthread_mutex_unlock(&db_mutex);
+    if (!res) return cJSON_CreateArray();
+    return res;
+}
+JSON_CreateObject();
+    cJSON_AddNumberToObject(summary, "room_id", room_id);
+    cJSON_AddNumberToObject(summary, "winner_player", winner_player);
+    cJSON_AddNumberToObject(summary, "total_pool", (double)total_pool);
+    cJSON_AddItemToObject(summary, "payouts", payouts);
+    if (settle_json) *settle_json = summary;
+    else cJSON_Delete(summary);
+
+    cJSON_Delete(bets);
+    pthread_mutex_unlock(&db_mutex);
+    return 0;
+}
+
+cJSON *db_get_multiplayer_bet_history(cwist_db *db, const char *identity, int room_id) {
+    if (!betting_db_available()) return cJSON_CreateArray();
+    if (!identity || strlen(identity) == 0) return cJSON_CreateArray();
+    char esc_identity[256];
+    sql_escape(identity, esc_identity, sizeof(esc_identity));
+
+    pthread_mutex_lock(&db_mutex);
+    cJSON *res = NULL;
+    char sql[768];
+    if (room_id > 0) {
+        snprintf(sql, sizeof(sql),
+                 "SELECT id, room_id, target_player, amount, settled, created_at "
+                 "FROM betting.multiplayer_bets WHERE identity='%s' AND room_id=%d "
+                 "ORDER BY id DESC LIMIT 30;",
+                 esc_identity, room_id);
+    } else {
+        snprintf(sql, sizeof(sql),
+                 "SELECT id, room_id, target_player, amount, settled, created_at "
+                 "FROM betting.multiplayer_bets WHERE identity='%s' "
+                 "ORDER BY id DESC LIMIT 30;",
+                 esc_identity);
+    }
+    cwist_db_query(db, sql, &res);
+    pthread_mutex_unlock(&db_mutex);
+    if (!res) return cJSON_CreateArray();
+    return res;
+}
+' "
                  "ORDER BY id DESC LIMIT 30;",
                  esc_identity);
     }
