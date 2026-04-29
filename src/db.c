@@ -602,9 +602,36 @@ int db_log_game_session(cwist_db *db, const char *identity, const char *session_
     sql_escape(safe_mode, esc_mode, sizeof(esc_mode));
     sql_escape(safe_difficulty, esc_difficulty, sizeof(esc_difficulty));
     char sql[1024];
+    if (strcmp(session_type, "multiplayer") == 0 && room_id > 0) {
+        snprintf(sql, sizeof(sql),
+                 "DELETE FROM game_sessions WHERE identity='%s' AND session_type='multiplayer' AND room_id=%d;",
+                 esc_identity, room_id);
+        pthread_mutex_lock(&db_mutex);
+        cwist_db_exec(db, sql);
+        snprintf(sql, sizeof(sql),
+                 "INSERT INTO game_sessions (identity, session_type, mode, difficulty, room_id, created_at) VALUES ('%s', '%s', '%s', '%s', %d, CURRENT_TIMESTAMP);",
+                 esc_identity, esc_type, esc_mode, esc_difficulty, room_id);
+        cwist_error_t err = cwist_db_exec(db, sql);
+        pthread_mutex_unlock(&db_mutex);
+        return err.error.err_i16;
+    }
     snprintf(sql, sizeof(sql),
              "INSERT INTO game_sessions (identity, session_type, mode, difficulty, room_id, created_at) VALUES ('%s', '%s', '%s', '%s', %d, CURRENT_TIMESTAMP);",
              esc_identity, esc_type, esc_mode, esc_difficulty, room_id);
+    pthread_mutex_lock(&db_mutex);
+    cwist_error_t err = cwist_db_exec(db, sql);
+    pthread_mutex_unlock(&db_mutex);
+    return err.error.err_i16;
+}
+
+int db_remove_multiplayer_session(cwist_db *db, const char *identity, int room_id) {
+    if (!identity || strlen(identity) == 0 || room_id <= 0) return -1;
+    char esc_identity[256];
+    sql_escape(identity, esc_identity, sizeof(esc_identity));
+    char sql[512];
+    snprintf(sql, sizeof(sql),
+             "DELETE FROM game_sessions WHERE identity='%s' AND session_type='multiplayer' AND room_id=%d;",
+             esc_identity, room_id);
     pthread_mutex_lock(&db_mutex);
     cwist_error_t err = cwist_db_exec(db, sql);
     pthread_mutex_unlock(&db_mutex);
@@ -653,15 +680,21 @@ void db_refresh_betting_slots(cwist_db *db) {
 
     for (int slot = 1; slot <= 10; slot++) {
         const char *difficulty = (slot <= 4) ? "easy" : (slot <= 7 ? "medium" : "hard");
-        double p_win = 0.34 + ((rand() % 7) - 3) * 0.01;
-        double p_lose = 0.34 + ((rand() % 7) - 3) * 0.01;
-        if (p_win < 0.28) p_win = 0.28;
-        if (p_lose < 0.28) p_lose = 0.28;
-        double p_draw = 1.0 - p_win - p_lose;
-        if (p_draw < 0.20) {
-            p_draw = 0.20;
-            p_win = 0.40;
-            p_lose = 0.40;
+        double p_win = 0.50;
+        double p_lose = 0.28;
+        double p_draw = 0.22;
+        if (strcmp(difficulty, "easy") == 0) {
+            p_win = 0.62;
+            p_lose = 0.20;
+            p_draw = 0.18;
+        } else if (strcmp(difficulty, "medium") == 0) {
+            p_win = 0.50;
+            p_lose = 0.28;
+            p_draw = 0.22;
+        } else {
+            p_win = 0.38;
+            p_lose = 0.38;
+            p_draw = 0.24;
         }
         double odds_win = 1.0 / p_win;
         double odds_lose = 1.0 / p_lose;
