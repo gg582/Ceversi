@@ -3,7 +3,8 @@
 
 #include <cwist/core/db/sql.h>
 #include <cjson/cJSON.h>
-#include "common.h"
+
+#include "../core/common.h"
 
 extern cwist_db *db_conn;
 

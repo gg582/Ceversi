@@ -53,9 +53,7 @@ WORKDIR /app
 # Copy binary and assets from builder
 COPY --from=c_builder /app/server ./ceversi
 COPY public/ ./public/
-COPY index.html.tmpl .
-COPY style.css .
-COPY script.js .
+COPY templates/ ./templates/
 
 # Ensure database file existence for initialization
 RUN touch othello.db

@@ -11,9 +11,8 @@ services:
     volumes:
       - ./server.crt:/app/server.crt
       - ./server.key:/app/server.key
-      - ./index.html:/app/index.html
-      - ./style.css:/app/style.css
-      - ./script.js:/app/script.js
+      - ./templates:/app/templates
+      - ./public:/app/public
       - ./othello.db:/app/othello.db
       - ./betting.db:/app/betting.db
     restart: always

@@ -13,14 +13,14 @@ Ceversi is a minimalist, SSL-ready Reversi/Othello server written in straight-up
 ## Spin It Up
 ### Easiest path (recommended)
 ```bash
-chmod +x quick-deploy.sh
-./quick-deploy.sh
+chmod +x scripts/deploy/quick-deploy.sh
+./scripts/deploy/quick-deploy.sh
 ```
 This handles key generation, dependency setup, Docker build, and boots the service at `https://localhost:31744` (self-signed cert, so allow it once).
 
 ### Bare-metal build
 ```bash
-./setup_libs.sh      # install native deps once
+./scripts/deploy/setup_libs.sh      # install native deps once
 make                 # builds ./server
 ./server             # launches the C backend
 ```
@@ -28,14 +28,15 @@ Feel free to customize `docker-compose.yml` or `Makefile` if you’re targeting 
 
 ### Systemd install (apt-based distros)
 ```bash
-sudo ./install.sh
+sudo ./scripts/deploy/install.sh
 ```
 This script mirrors the Docker build steps on the host, installs the binary + assets into `/opt/ceversi`, and drops a `ceversi.service` unit so `systemd` keeps it alive. Manage it with `systemctl status|restart ceversi.service` and tail logs via `journalctl -u ceversi.service -f`.
 
 ## Project Map
-- `src/` – the C engine (handlers, utils, DB glue).
-- `public/` + `index.html` – the chill front-end.
-- `quick-deploy.sh` – all-in-one bootstrap.
+- `src/app`, `src/http`, `src/data`, `src/game`, `src/core` – backend code split by responsibility.
+- `public/` – browser assets served under `/static`.
+- `templates/` – server-rendered HTML templates.
+- `scripts/deploy/` – install and bootstrap scripts.
 - `tests/` – harness for verifying move logic.
 
 ## Contribute Your Spice

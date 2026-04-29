@@ -9,7 +9,8 @@ LIBTTAK_REPO="${LIBTTAK_REPO:-https://github.com/gg582/libttak.git}"
 LIBTTAK_REF="${LIBTTAK_REF:-main}"
 CWIST_REPO="${CWIST_REPO:-https://github.com/gg582/cwist.git}"
 CWIST_REF="${CWIST_REF:-main}"
-REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 require_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -88,8 +89,8 @@ build_libttak
 build_cwist
 
 pushd "$REPO_ROOT" >/dev/null
-if [[ -x ./keygen.sh ]]; then
-    ./keygen.sh
+if [[ -x ./scripts/deploy/keygen.sh ]]; then
+    ./scripts/deploy/keygen.sh
 fi
 make clean
 make

@@ -1,6 +1,11 @@
 #!/bin/bash
 # Prepares local libraries for Docker build
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+cd "$REPO_ROOT"
+
 CWIST_URL="https://github.com/gg582/cwist"
 CWIST_BUILD_DIR="cwist_build" # Temporary directory to clone and build cwist
 

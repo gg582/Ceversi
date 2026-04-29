@@ -1,6 +1,7 @@
 #include "db.h"
-#include "betting_logic.h"
-#include "memory.h"
+
+#include "../game/betting_logic.h"
+#include "../core/memory.h"
 #include <cwist/core/db/sql.h>
 #include <cwist/sys/err/cwist_err.h>
 #include <cjson/cJSON.h>

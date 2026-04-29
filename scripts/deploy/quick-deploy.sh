@@ -1,15 +1,20 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+cd "$REPO_ROOT"
+
 echo "=== Ceversi Quick Deploy ==="
 
 echo "[1/4] Preparing SSL Keys..."
-chmod +x keygen.sh
-./keygen.sh
+chmod +x scripts/deploy/keygen.sh
+./scripts/deploy/keygen.sh
 
 echo "[2/4] Preparing Library Dependencies..."
-chmod +x setup_libs.sh
-./setup_libs.sh
+chmod +x scripts/deploy/setup_libs.sh
+./scripts/deploy/setup_libs.sh
 
 echo "[3/4] Building and Starting Docker Container..."
 # Check if docker is available

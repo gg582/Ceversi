@@ -11,11 +11,9 @@
 #include <pthread.h>
 #include <unistd.h>
 
-#include "common.h"
-#include "db.h"
-#include "handlers.h"
-#include "utils.h"
-#include "memory.h"
+#include "../data/db.h"
+#include "../http/handlers.h"
+#include "../core/memory.h"
 
 #define PORT 31744
 
